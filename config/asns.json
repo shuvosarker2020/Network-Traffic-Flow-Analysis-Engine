@@ -1,0 +1,86 @@
+{
+  "15169": {
+    "name": "Google LLC",
+    "category": "Peering / CDN",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  },
+  "13335": {
+    "name": "Cloudflare, Inc.",
+    "category": "Peering / CDN",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  },
+  "2906": {
+    "name": "Netflix Streaming Services",
+    "category": "Peering / CDN",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  },
+  "8075": {
+    "name": "Microsoft Corporation",
+    "category": "Peering / Cloud",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  },
+  "16509": {
+    "name": "Amazon.com, Inc.",
+    "category": "Peering / Cloud",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  },
+  "3356": {
+    "name": "Lumen / Level3",
+    "category": "Tier-1 Transit",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.45
+  },
+  "1299": {
+    "name": "Arelion / Telia Carrier",
+    "category": "Tier-1 Transit",
+    "country": "SE",
+    "transit_cost_usd_mbps": 0.42
+  },
+  "174": {
+    "name": "Cogent Communications",
+    "category": "Tier-1 Transit",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.25
+  },
+  "2914": {
+    "name": "NTT Communications",
+    "category": "Tier-1 Transit",
+    "country": "JP",
+    "transit_cost_usd_mbps": 0.48
+  },
+  "6939": {
+    "name": "Hurricane Electric",
+    "category": "Transit / Peering",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.2
+  },
+  "3257": {
+    "name": "GTT Communications",
+    "category": "Tier-1 Transit",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.4
+  },
+  "64512": {
+    "name": "Internal Corp DC East",
+    "category": "Internal / Customer",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  },
+  "64513": {
+    "name": "Internal Corp DC West",
+    "category": "Internal / Customer",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  },
+  "64514": {
+    "name": "Internal Edge VPC Cloud",
+    "category": "Internal / Customer",
+    "country": "US",
+    "transit_cost_usd_mbps": 0.0
+  }
+}

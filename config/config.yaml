@@ -1,0 +1,64 @@
+# AegisFlow - Carrier-Grade Flow Intelligence & Observability Engine Configuration
+
+server:
+  host: "0.0.0.0"
+  api_port: 8080
+  workers: 4
+
+listeners:
+  netflow_v5:
+    enabled: true
+    port: 2055
+    buffer_size: 65535
+  netflow_v9:
+    enabled: true
+    port: 2056
+    buffer_size: 65535
+  ipfix:
+    enabled: true
+    port: 4739
+    buffer_size: 65535
+  sflow:
+    enabled: true
+    port: 6343
+    buffer_size: 65535
+
+storage:
+  # Supported engines: "duckdb" (embedded columnar OLAP) or "clickhouse" (enterprise distributed)
+  engine: "duckdb"
+  duckdb:
+    path: "data/aegisflow.duckdb"
+    threads: 4
+  clickhouse:
+    host: "localhost"
+    port: 8123
+    user: "default"
+    password: ""
+    database: "aegisflow"
+  batch_size: 5000
+  flush_interval_seconds: 1.0
+  retention_days: 90
+
+enrichment:
+  dns_cache_ttl_sec: 3600
+  geoip_enabled: true
+  bgp_peering_analysis: true
+  east_west_tracking: true
+
+security:
+  ddos:
+    volumetric_threshold_mbps: 500
+    syn_flood_ratio_threshold: 0.85
+    udp_flood_pps_threshold: 50000
+    dns_amplification_threshold_pps: 20000
+    icmp_flood_pps_threshold: 15000
+  anomaly:
+    port_scan_unique_ports_threshold: 30
+    lateral_movement_subnets: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+    baseline_window_minutes: 60
+    z_score_threshold: 3.0
+
+alerting:
+  dispatch_webhook: "http://localhost:8080/api/v1/alerts/mock-webhook"
+  email_notifications: false
+  slack_notifications: false

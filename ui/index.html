@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AegisFlow | Carrier-Grade Flow Intelligence & DDoS Defense</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- ECharts -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <!-- Leaflet Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              dark: '#080c14',
+              card: '#0f172a',
+              border: '#1e293b',
+              accent: '#06b6d4',
+              highlight: '#3b82f6',
+              success: '#10b981',
+              warning: '#f59e0b',
+              danger: '#ef4444'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #080c14; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .glass-card { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glow-cyan { text-shadow: 0 0 10px rgba(6, 182, 212, 0.6); }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #080c14; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Top Navigation Header -->
+  <header class="glass-card sticky top-0 z-50 px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <i class="fa-solid fa-network-wired text-white text-lg"></i>
+        </div>
+        <div>
+          <span class="text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400 bg-clip-text text-transparent">AegisFlow</span>
+          <span class="text-xs text-slate-400 font-mono ml-1.5 px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700">CARRIER v2.0</span>
+        </div>
+      </div>
+      <div class="hidden lg:flex items-center space-x-2 text-xs text-slate-400 border-l border-slate-800 pl-4">
+        <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span> Engine: Active</span>
+        <span class="text-slate-600">|</span>
+        <span>Storage: <strong class="text-slate-200">DuckDB Columnar OLAP</strong></span>
+        <span class="text-slate-600">|</span>
+        <span>Protocols: <strong class="text-cyan-400">NetFlow v5/v9, IPFIX, sFlow v5</strong></span>
+      </div>
+    </div>
+
+    <!-- Live Action Buttons -->
+    <div class="flex items-center space-x-3">
+      <button onclick="openAttackConsoleModal()" id="btn-header-attack" class="px-3 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 text-xs font-semibold flex items-center space-x-1.5 transition">
+        <i class="fa-solid fa-shield-virus"></i>
+        <span>Inject Test Attack</span>
+      </button>
+      <button onclick="stopSimulatedAttack()" id="btn-header-stop-attack" class="hidden px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center space-x-1.5 shadow-lg shadow-red-600/30 animate-pulse transition">
+        <i class="fa-solid fa-circle-stop"></i>
+        <span>Stop Attack</span>
+      </button>
+      <button onclick="openNotificationModal()" class="relative px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition">
+        <i class="fa-solid fa-bell text-amber-400"></i>
+        <span>Alerts</span>
+        <span id="badge-notification-count" class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">0</span>
+      </button>
+      <button onclick="refreshCurrentTab()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition">
+        <i class="fa-solid fa-rotate text-cyan-400"></i>
+        <span>Refresh</span>
+      </button>
+      <div class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-xs font-mono text-cyan-400">
+        <span id="live-clock">--:--:-- UTC</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main App Layout with Sidebar Tabs -->
+  <div class="flex flex-1 overflow-hidden">
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 glass-card border-r border-slate-800 p-4 flex flex-col space-y-1">
+      <div class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase px-3 mb-2">Observability & Flow</div>
+      <button onclick="switchTab('overview')" id="nav-overview" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-white bg-cyan-600/20 border border-cyan-500/30">
+        <i class="fa-solid fa-chart-line text-cyan-400 w-5"></i>
+        <span>NOC Overview</span>
+      </button>
+      <button onclick="switchTab('pattern')" id="nav-pattern" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-filter-circle-dollar text-cyan-400 w-5"></i>
+        <span>Traffic Pattern Studio</span>
+      </button>
+      <button onclick="jumpToCdnSankey()" id="nav-cdn-sankey" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-water text-cyan-400 w-5"></i>
+        <div class="flex items-center justify-between w-full">
+          <span>CDN Flow (Sankey)</span>
+          <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">★ Pic</span>
+        </div>
+      </button>
+      <button onclick="switchTab('top-talkers')" id="nav-top-talkers" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-bolt text-amber-400 w-5"></i>
+        <span>Top Talkers & Apps</span>
+      </button>
+      <button onclick="switchTab('peering')" id="nav-peering" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-diagram-project text-purple-400 w-5"></i>
+        <span>BGP & Peering Matrix</span>
+      </button>
+      <button onclick="switchTab('interfaces')" id="nav-interfaces" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-ethernet text-blue-400 w-5"></i>
+        <span>Interface Utilization</span>
+      </button>
+      <button onclick="switchTab('geomap')" id="nav-geomap" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-earth-americas text-emerald-400 w-5"></i>
+        <span>Geographic Flow Map</span>
+      </button>
+
+      <div class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase px-3 mt-5 mb-2">Security & Intelligence</div>
+      <button onclick="switchTab('security')" id="nav-security" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-shield-halved text-red-400 w-5"></i>
+        <div class="flex items-center justify-between w-full">
+          <span>DDoS & Anomalies</span>
+          <span id="badge-active-attacks" class="hidden px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">0</span>
+        </div>
+      </button>
+      <button onclick="switchTab('qos')" id="nav-qos" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-sliders text-indigo-400 w-5"></i>
+        <span>QoS / CBQoS Tagging</span>
+      </button>
+
+      <div class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase px-3 mt-5 mb-2">Planning & Assets</div>
+      <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-envelope-open-text text-emerald-400 w-5"></i>
+        <span>Reports & Notifications</span>
+      </button>
+      <button onclick="switchTab('capacity')" id="nav-capacity" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-arrow-trend-up text-pink-400 w-5"></i>
+        <span>Capacity Forecasting</span>
+      </button>
+      <button onclick="switchTab('billing')" id="nav-billing" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-file-invoice-dollar text-emerald-400 w-5"></i>
+        <span>95th Burstable Billing</span>
+      </button>
+      <button onclick="switchTab('devices')" id="nav-devices" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-server text-teal-400 w-5"></i>
+        <span>Device Inventory (1000+)</span>
+      </button>
+      <button onclick="switchTab('explorer')" id="nav-explorer" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-database text-cyan-400 w-5"></i>
+        <span>Raw Flow Explorer</span>
+      </button>
+    </aside>
+
+    <!-- Main Dynamic Content Area -->
+    <main class="flex-1 overflow-y-auto p-6 space-y-6">
+
+      <!-- ================= TAB 1: NOC OVERVIEW ================= -->
+      <section id="tab-overview" class="tab-pane space-y-6">
+        <!-- KPI Row -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div class="glass-card p-4 rounded-xl">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Total Bandwidth</span>
+              <i class="fa-solid fa-gauge-high text-cyan-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-white tracking-tight" id="kpi-mbps">-- Gbps</div>
+            <div class="text-xs text-slate-400 mt-1 flex items-center space-x-1">
+              <span class="text-emerald-400 font-semibold"><i class="fa-solid fa-arrow-trend-up"></i> Live Wire Rate</span>
+            </div>
+          </div>
+          <div class="glass-card p-4 rounded-xl">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Packet Rate</span>
+              <i class="fa-solid fa-layer-group text-blue-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-white tracking-tight" id="kpi-pps">-- kpps</div>
+            <div class="text-xs text-slate-400 mt-1">Packets per second</div>
+          </div>
+          <div class="glass-card p-4 rounded-xl">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Active Flows Analyzed</span>
+              <i class="fa-solid fa-arrows-split-up-and-left text-purple-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-white tracking-tight" id="kpi-flows">--</div>
+            <div class="text-xs text-slate-400 mt-1">Decoded in buffer</div>
+          </div>
+          <div class="glass-card p-4 rounded-xl">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Inventory Devices</span>
+              <i class="fa-solid fa-network-wired text-emerald-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-white tracking-tight" id="kpi-devices">1,000</div>
+            <div class="text-xs text-slate-400 mt-1">Cisco, Juniper, Huawei, Nokia</div>
+          </div>
+          <div class="glass-card p-4 rounded-xl">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Active Threat Level</span>
+              <i class="fa-solid fa-shield-virus text-red-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-amber-400 tracking-tight" id="kpi-threat-level">MONITORING</div>
+            <div class="text-xs text-slate-400 mt-1" id="kpi-threat-desc">Real-time DDoS Radar Active</div>
+          </div>
+        </div>
+
+        <!-- Real-Time Bandwidth Timeseries Chart -->
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-base font-semibold text-white">Aggregated Network Throughput (Wire Rate)</h2>
+              <p class="text-xs text-slate-400">Real-time sampling rate compensated ingress/egress bandwidth</p>
+            </div>
+            <div class="flex items-center space-x-2 text-xs">
+              <span class="px-2 py-1 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">1-Sec Resolution</span>
+            </div>
+          </div>
+          <div id="chart-throughput" class="w-full h-72"></div>
+        </div>
+
+        <!-- Two Column Breakdown: Top Protocols & Traffic Direction -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="glass-card p-5 rounded-xl">
+            <h3 class="text-sm font-semibold text-white mb-3">Top Applications & Layer 7 Services</h3>
+            <div id="chart-applications-pie" class="w-full h-64"></div>
+          </div>
+          <div class="glass-card p-5 rounded-xl">
+            <h3 class="text-sm font-semibold text-white mb-3">Traffic Flow Classification (East-West vs North-South)</h3>
+            <div id="chart-direction-pie" class="w-full h-64"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB: TRAFFIC PATTERN STUDIO (MULTI-CONDITION FILTER) ================= -->
+      <section id="tab-pattern" class="tab-pane hidden space-y-6">
+        <div class="glass-card p-5 rounded-xl border-l-4 border-l-cyan-500">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 class="text-base font-semibold text-white flex items-center space-x-2">
+                <i class="fa-solid fa-filter-circle-dollar text-cyan-400"></i>
+                <span>Traffic Pattern Studio & Multi-Condition Filter</span>
+              </h2>
+              <p class="text-xs text-slate-400">Multi-attribute correlation: ASN to ASN & IP, Source Prefix to Interface, Destination Prefix & Device</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="openCreateReportModalWithCurrentFilters()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center space-x-1.5 shadow-lg shadow-emerald-600/20 transition">
+                <i class="fa-solid fa-file-circle-plus"></i>
+                <span>Save as Automated Report</span>
+              </button>
+              <button onclick="resetPatternFilters()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold">
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <!-- Multi-Condition Filter Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 mb-4 text-xs">
+            <!-- Row 1: ASN to ASN -->
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Source ASN</label>
+              <input type="text" id="pat-src-as" placeholder="e.g. 3356 (Lumen)" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Destination ASN</label>
+              <input type="text" id="pat-dst-as" placeholder="e.g. 15169 (Google)" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Source Country</label>
+              <input type="text" id="pat-src-country" placeholder="e.g. US, DE, JP" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Destination Country</label>
+              <input type="text" id="pat-dst-country" placeholder="e.g. US, SE, SG" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            </div>
+
+            <!-- Row 2: Prefix & IP to Interface & Device -->
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Source IP or CIDR Prefix</label>
+              <input type="text" id="pat-src-prefix" placeholder="e.g. 10.0.0.0/16 or 10.0.1.5" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Ingress Interface</label>
+              <input type="text" id="pat-in-if" placeholder="e.g. HundredGigE0/0/0/1" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Destination IP or CIDR Prefix</label>
+              <input type="text" id="pat-dst-prefix" placeholder="e.g. 8.8.8.0/24 or 1.1.1.1" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Exporter Device / Router</label>
+              <select id="pat-device" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+                <option value="">All Devices (1,000+)</option>
+              </select>
+            </div>
+
+            <!-- Row 3: Protocol, Application, DSCP, Time -->
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Application / Service</label>
+              <select id="pat-app" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+                <option value="">All Applications</option>
+                <option value="HTTPS / TLS">HTTPS / TLS</option>
+                <option value="QUIC / HTTP3">QUIC / HTTP3</option>
+                <option value="DNS">DNS</option>
+                <option value="SIP / VoIP">SIP / VoIP (Voice)</option>
+                <option value="RTP Audio/Video">RTP Audio/Video</option>
+                <option value="BGP">BGP (Routing)</option>
+                <option value="Apache Kafka">Apache Kafka</option>
+                <option value="Redis">Redis</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">DSCP / QoS Class</label>
+              <select id="pat-dscp" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+                <option value="">All DSCP Tags</option>
+                <option value="0">CS0 (Best Effort 0)</option>
+                <option value="46">EF (Voice 46)</option>
+                <option value="34">AF41 (Video 34)</option>
+                <option value="48">CS6 (Routing 48)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Flow Direction</label>
+              <select id="pat-direction" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+                <option value="">All Directions</option>
+                <option value="East-West">East-West (Internal)</option>
+                <option value="North-South (Outbound)">North-South Outbound</option>
+                <option value="North-South (Inbound)">North-South Inbound</option>
+                <option value="External">External Transit</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 font-semibold mb-1">Time Window</label>
+              <div class="flex space-x-2">
+                <select id="pat-time" class="flex-1 bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+                  <option value="15">Last 15 Minutes</option>
+                  <option value="60" selected>Last 1 Hour</option>
+                  <option value="360">Last 6 Hours</option>
+                  <option value="1440">Last 24 Hours</option>
+                </select>
+                <button onclick="executePatternQuery()" class="px-4 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center space-x-1 shadow-md shadow-cyan-600/30">
+                  <i class="fa-solid fa-magnifying-glass-chart"></i>
+                  <span>Filter</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dynamic Filter KPI Row -->
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div class="p-4 rounded-xl bg-slate-900/70 border border-slate-800">
+              <span class="text-xs text-slate-400 uppercase font-semibold">Matched Throughput</span>
+              <div class="text-2xl font-bold text-cyan-400 mt-1" id="pat-kpi-mbps">-- Mbps</div>
+              <span class="text-[11px] text-slate-500">Filtered Wire-Rate</span>
+            </div>
+            <div class="p-4 rounded-xl bg-slate-900/70 border border-slate-800">
+              <span class="text-xs text-slate-400 uppercase font-semibold">Total Data Volume</span>
+              <div class="text-2xl font-bold text-emerald-400 mt-1" id="pat-kpi-bytes">-- GB</div>
+              <span class="text-[11px] text-slate-500">Transferred in window</span>
+            </div>
+            <div class="p-4 rounded-xl bg-slate-900/70 border border-slate-800">
+              <span class="text-xs text-slate-400 uppercase font-semibold">Matching Flows</span>
+              <div class="text-2xl font-bold text-purple-400 mt-1" id="pat-kpi-flows">--</div>
+              <span class="text-[11px] text-slate-500">Decoded Flow Records</span>
+            </div>
+            <div class="p-4 rounded-xl bg-slate-900/70 border border-slate-800">
+              <span class="text-xs text-slate-400 uppercase font-semibold">Matched Endpoints</span>
+              <div class="text-2xl font-bold text-amber-400 mt-1" id="pat-kpi-endpoints">-- Hosts</div>
+              <span class="text-[11px] text-slate-500">Unique Src / Dst Pairs</span>
+            </div>
+          </div>
+
+          <!-- Traffic Visualization Multi-View Studio (Sankey, Bar, Table, Area, Treemap, Sunburst) -->
+          <div class="glass-card p-5 rounded-xl mb-4">
+            <!-- View Switcher Toolbar -->
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-800/80">
+              <div class="flex items-center space-x-3">
+                <span id="active-view-badge" class="px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center space-x-1.5 shadow-sm shadow-amber-500/10">
+                  <i class="fa-solid fa-star text-amber-400"></i>
+                  <span>★ Saved View: CDN Traffic Network Entry & Exit</span>
+                </span>
+                <select id="select-pattern-preset" onchange="onPresetSelected(this.value)" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-2.5 py-1.5 outline-none focus:border-cyan-500 font-medium">
+                  <option value="CDN_ENTRY_EXIT" selected>★ CDN Traffic Network Entry and Exit (Saved View)</option>
+                  <option value="DYNAMIC">🌐 Multi-Condition Filter Telemetry</option>
+                </select>
+              </div>
+
+              <!-- Graph Change Option Buttons -->
+              <div class="flex items-center flex-wrap gap-1.5 bg-slate-900/90 p-1.5 rounded-xl border border-slate-800">
+                <button onclick="switchGraphView('sankey')" id="btn-view-sankey" class="px-3 py-1.5 rounded-lg bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 text-xs font-bold flex items-center space-x-1.5 shadow-sm shadow-cyan-500/20" title="Sankey Flow Diagram (As Attached Picture)">
+                  <i class="fa-solid fa-water text-cyan-400"></i>
+                  <span>Sankey Flow</span>
+                </button>
+                <button onclick="switchGraphView('bar')" id="btn-view-bar" class="px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-medium flex items-center space-x-1.5 transition" title="Ranked Bar Chart">
+                  <i class="fa-solid fa-chart-column text-amber-400"></i>
+                  <span>Ranked Bars</span>
+                </button>
+                <button onclick="switchGraphView('table')" id="btn-view-table" class="px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-medium flex items-center space-x-1.5 transition" title="Interactive Flow Data Table">
+                  <i class="fa-solid fa-table-list text-emerald-400"></i>
+                  <span>Data Table</span>
+                </button>
+                <button onclick="switchGraphView('area')" id="btn-view-area" class="px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-medium flex items-center space-x-1.5 transition" title="Time-Series Wire-Rate Trend">
+                  <i class="fa-solid fa-chart-area text-blue-400"></i>
+                  <span>Area Trend</span>
+                </button>
+                <button onclick="switchGraphView('treemap')" id="btn-view-treemap" class="px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-medium flex items-center space-x-1.5 transition" title="Hierarchical Bandwidth Treemap Matrix">
+                  <i class="fa-solid fa-boxes-stacked text-purple-400"></i>
+                  <span>Treemap</span>
+                </button>
+                <button onclick="switchGraphView('sunburst')" id="btn-view-sunburst" class="px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-medium flex items-center space-x-1.5 transition" title="Radial Multi-Ring Sunburst Hierarchy">
+                  <i class="fa-solid fa-sun text-yellow-400"></i>
+                  <span>Sunburst</span>
+                </button>
+                <div class="h-4 w-[1px] bg-slate-700 mx-1"></div>
+                <button onclick="exportPatternDataToCSV()" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium flex items-center space-x-1 transition" title="Export Dataset to CSV">
+                  <i class="fa-solid fa-file-arrow-down text-cyan-400"></i>
+                  <span>CSV</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- VIEW 1: SANKEY FLOW DIAGRAM (Attached Pic Layout) -->
+            <div id="view-sankey-container" class="space-y-2">
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-2 px-3 py-2 bg-slate-900/90 rounded-lg border border-slate-800 text-[11px] font-mono">
+                <div class="flex items-center space-x-1.5 text-slate-300"><span class="w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-500/50"></span><span class="font-bold">1. CDN Provider</span></div>
+                <div class="flex items-center space-x-1.5 text-slate-300"><span class="w-2.5 h-2.5 rounded-full bg-teal-400 shadow-sm shadow-teal-400/50"></span><span class="font-bold">2. Interconnect</span></div>
+                <div class="flex items-center space-x-1.5 text-slate-300"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50"></span><span class="font-bold">3. Ingress PoP</span></div>
+                <div class="flex items-center space-x-1.5 text-slate-300"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm shadow-blue-500/50"></span><span class="font-bold">4. Egress PoP</span></div>
+                <div class="flex items-center space-x-1.5 text-slate-300 col-span-2 md:col-span-1"><span class="w-2.5 h-2.5 rounded-full bg-pink-500 shadow-sm shadow-pink-500/50"></span><span class="font-bold">5. Destination Prefix</span></div>
+              </div>
+              <div id="chart-pattern-sankey" class="w-full h-[580px]"></div>
+            </div>
+
+            <!-- VIEW 2: RANKED BARS -->
+            <div id="view-bar-container" class="hidden space-y-3">
+              <div class="flex items-center space-x-2 pb-2">
+                <span class="text-xs text-slate-400 font-semibold mr-1">Rank By:</span>
+                <button onclick="switchBarSubcategory('providers')" id="btn-bar-providers" class="px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold">Top CDN Providers</button>
+                <button onclick="switchBarSubcategory('prefixes')" id="btn-bar-prefixes" class="px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-200 text-xs">Destination Prefixes</button>
+                <button onclick="switchBarSubcategory('interconnects')" id="btn-bar-interconnects" class="px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-200 text-xs">Interconnect Types</button>
+              </div>
+              <div id="chart-pattern-bar" class="w-full h-[520px]"></div>
+            </div>
+
+            <!-- VIEW 3: INTERACTIVE DATA TABLE -->
+            <div id="view-table-container" class="hidden space-y-3">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
+                <div class="relative flex-1 max-w-md">
+                  <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-500 text-xs"></i>
+                  <input type="text" id="table-search-input" oninput="filterPatternTable(this.value)" placeholder="Search provider, interconnect, PoP, prefix, or app..." class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500">
+                </div>
+                <div class="text-xs text-slate-400 font-mono flex items-center space-x-2">
+                  <span>High-Density Network Path Telemetry</span>
+                  <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[10px]">Wire-Rate Ranked</span>
+                </div>
+              </div>
+              <div class="overflow-x-auto max-h-[520px] overflow-y-auto rounded-lg border border-slate-800">
+                <table class="w-full text-left text-xs">
+                  <thead class="sticky top-0 bg-slate-900/95 backdrop-blur z-10">
+                    <tr class="text-slate-400 border-b border-slate-800 text-[11px] font-semibold">
+                      <th class="py-2.5 px-3">#</th>
+                      <th class="py-2.5 px-3">Source Provider / ASN</th>
+                      <th class="py-2.5 px-3">Interconnect</th>
+                      <th class="py-2.5 px-3">Ingress PoP</th>
+                      <th class="py-2.5 px-3">Egress PoP</th>
+                      <th class="py-2.5 px-3">Destination Subnet</th>
+                      <th class="py-2.5 px-3">Application</th>
+                      <th class="py-2.5 px-3 text-right">Throughput</th>
+                      <th class="py-2.5 px-3 text-right">Volume</th>
+                      <th class="py-2.5 px-3 text-right">Packet Rate</th>
+                      <th class="py-2.5 px-3 w-32">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody id="view-table-body" class="divide-y divide-slate-800/60 font-mono">
+                    <tr><td colspan="11" class="py-6 text-center text-slate-500">Loading flow data table...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- VIEW 4: TIME-SERIES AREA TREND -->
+            <div id="view-area-container" class="hidden space-y-2">
+              <div class="flex items-center justify-between pb-1">
+                <span class="text-xs text-slate-400">1-Minute Telemetry Buckets over Active Time Window</span>
+                <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-xs font-mono">Dual Mbps & PPS Trend</span>
+              </div>
+              <div id="chart-pattern-timeseries" class="w-full h-[420px]"></div>
+            </div>
+
+            <!-- VIEW 5: TREEMAP -->
+            <div id="view-treemap-container" class="hidden space-y-2">
+              <div class="flex items-center justify-between pb-1">
+                <span class="text-xs text-slate-400">Click rectangles to zoom and drill into network hierarchy (Provider ➔ Interconnect / Site)</span>
+                <span class="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 text-xs font-mono">Area Proportional to Bandwidth</span>
+              </div>
+              <div id="chart-pattern-treemap" class="w-full h-[520px]"></div>
+            </div>
+
+            <!-- VIEW 6: SUNBURST -->
+            <div id="view-sunburst-container" class="hidden space-y-2">
+              <div class="flex items-center justify-between pb-1">
+                <span class="text-xs text-slate-400">Concentric hierarchical flow distribution from core to edge</span>
+                <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-mono">Radial Multi-Level</span>
+              </div>
+              <div id="chart-pattern-sunburst" class="w-full h-[520px]"></div>
+            </div>
+          </div>
+
+          <!-- Two Column: Top ASN-to-ASN & Interface Utilization -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
+            <div class="glass-card p-4 rounded-xl">
+              <h3 class="text-sm font-semibold text-white mb-2">Matched ASN-to-ASN Routing Matrix</h3>
+              <div class="overflow-x-auto max-h-56 overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="sticky top-0 bg-slate-900">
+                    <tr class="text-slate-400 border-b border-slate-800">
+                      <th class="pb-1.5">Source ASN</th>
+                      <th class="pb-1.5">Destination ASN</th>
+                      <th class="pb-1.5 text-right">Throughput</th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-pattern-asns" class="divide-y divide-slate-800/60 font-mono">
+                    <tr><td colspan="3" class="py-3 text-center text-slate-500">Run query to view ASN flows...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="glass-card p-4 rounded-xl">
+              <h3 class="text-sm font-semibold text-white mb-2">Matched Device & Interface Telemetry</h3>
+              <div class="overflow-x-auto max-h-56 overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="sticky top-0 bg-slate-900">
+                    <tr class="text-slate-400 border-b border-slate-800">
+                      <th class="pb-1.5">Router Hostname</th>
+                      <th class="pb-1.5">Interface</th>
+                      <th class="pb-1.5 text-right">Throughput</th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-pattern-interfaces" class="divide-y divide-slate-800/60 font-mono">
+                    <tr><td colspan="3" class="py-3 text-center text-slate-500">Run query to view interface flows...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Matched IP Conversations Table -->
+          <div class="glass-card p-4 rounded-xl">
+            <h3 class="text-sm font-semibold text-white mb-2">Detailed Matching Conversations (IP, Port & Protocol)</h3>
+            <div class="overflow-x-auto max-h-64 overflow-y-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="sticky top-0 bg-slate-900">
+                  <tr class="text-slate-400 border-b border-slate-800">
+                    <th class="pb-2">Source IP / ASN</th>
+                    <th class="pb-2">Destination IP / ASN</th>
+                    <th class="pb-2">Application</th>
+                    <th class="pb-2">Port / Proto</th>
+                    <th class="pb-2">Direction</th>
+                    <th class="pb-2 text-right">Throughput</th>
+                  </tr>
+                </thead>
+                <tbody id="table-pattern-conversations" class="divide-y divide-slate-800/60 font-mono">
+                  <tr><td colspan="6" class="py-3 text-center text-slate-500">No active query run</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB: REPORTS & AUTOMATED NOTIFICATIONS ================= -->
+      <section id="tab-reports" class="tab-pane hidden space-y-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-white flex items-center space-x-2">
+              <i class="fa-solid fa-envelope-open-text text-emerald-400"></i>
+              <span>Automated Reports & Notification Engine</span>
+            </h2>
+            <p class="text-xs text-slate-400">Create condition-based automated reports, schedule executions, and deliver via Email & Webhooks</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="openCreateReportModal()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-emerald-600/30 transition">
+              <i class="fa-solid fa-plus"></i>
+              <span>Create New Report</span>
+            </button>
+            <button onclick="openNotificationModal()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition">
+              <i class="fa-solid fa-paper-plane text-cyan-400"></i>
+              <span>Test Email/Webhook</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Saved Reports Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="grid-saved-reports">
+          <div class="p-6 text-center text-slate-500 font-mono text-xs col-span-3">Loading saved reports...</div>
+        </div>
+
+        <!-- Report Execution & Dispatch History Table -->
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-semibold text-white">Report Execution & Delivery Audit History</h3>
+              <p class="text-xs text-slate-400">Log of generated reports, calculated bandwidth metrics, and SMTP/Webhook dispatch statuses</p>
+            </div>
+          </div>
+          <div class="overflow-x-auto max-h-72 overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="sticky top-0 bg-slate-900 z-10">
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2">Execution Time</th>
+                  <th class="pb-2">Report Name</th>
+                  <th class="pb-2 text-right">Avg Wire-Rate</th>
+                  <th class="pb-2 text-right">Total Transferred</th>
+                  <th class="pb-2 text-right">Flows</th>
+                  <th class="pb-2 text-center">Email Dispatch</th>
+                  <th class="pb-2 text-center">Webhook</th>
+                  <th class="pb-2 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="table-report-history" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="8" class="py-4 text-center text-slate-500">Loading execution history...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 2: TOP TALKERS & CONVERSATIONS ================= -->
+      <section id="tab-top-talkers" class="tab-pane hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Top Source IPs -->
+          <div class="glass-card p-5 rounded-xl">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-sm font-semibold text-white">Top Source Talkers (Ingress Bandwidth)</h3>
+              <span class="text-xs text-slate-400">Past 60 Minutes</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="text-slate-400 border-b border-slate-800">
+                    <th class="pb-2">Source IP</th>
+                    <th class="pb-2">Geo / ASN</th>
+                    <th class="pb-2">Location/Cloud</th>
+                    <th class="pb-2 text-right">Bandwidth</th>
+                    <th class="pb-2 text-right">Total Data</th>
+                  </tr>
+                </thead>
+                <tbody id="table-top-sources" class="divide-y divide-slate-800/60 font-mono">
+                  <tr><td colspan="5" class="py-4 text-center text-slate-500">Loading talkers...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Top Destination IPs -->
+          <div class="glass-card p-5 rounded-xl">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-sm font-semibold text-white">Top Destination Targets (Egress Bandwidth)</h3>
+              <span class="text-xs text-slate-400">Past 60 Minutes</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="text-slate-400 border-b border-slate-800">
+                    <th class="pb-2">Destination IP</th>
+                    <th class="pb-2">Geo / ASN</th>
+                    <th class="pb-2">Location/Cloud</th>
+                    <th class="pb-2 text-right">Bandwidth</th>
+                    <th class="pb-2 text-right">Total Data</th>
+                  </tr>
+                </thead>
+                <tbody id="table-top-destinations" class="divide-y divide-slate-800/60 font-mono">
+                  <tr><td colspan="5" class="py-4 text-center text-slate-500">Loading targets...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full Source-to-Destination Conversations Matrix -->
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white">Source to Destination Conversations Matrix</h3>
+              <p class="text-xs text-slate-400">End-to-end flow pairs with Layer 4 ports, applications, and traffic direction</p>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2">Source Host</th>
+                  <th class="pb-2">Destination Target</th>
+                  <th class="pb-2">Service / Application</th>
+                  <th class="pb-2">Port / Proto</th>
+                  <th class="pb-2">Direction</th>
+                  <th class="pb-2 text-right">Throughput</th>
+                  <th class="pb-2 text-right">Packets</th>
+                </tr>
+              </thead>
+              <tbody id="table-conversations" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="7" class="py-4 text-center text-slate-500">Loading conversations...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: BGP PEERING & ASN MATRIX ================= -->
+      <section id="tab-peering" class="tab-pane hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="glass-card p-5 rounded-xl lg:col-span-1">
+            <h3 class="text-sm font-semibold text-white mb-2">Transit vs Peering Cost Ratio</h3>
+            <p class="text-xs text-slate-400 mb-4">Traffic routed through Paid Upstream Transit vs Free IXP Peering</p>
+            <div id="chart-peering-ratio" class="w-full h-56"></div>
+          </div>
+
+          <div class="glass-card p-5 rounded-xl lg:col-span-2">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-semibold text-white">Autonomous System (ASN-to-ASN) Routing Matrix</h3>
+              <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-xs font-semibold border border-emerald-500/20">Cost Optimization Engine</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">Identifies heavy transit traffic destined for ASNs reachable via direct PNI or IXP peering to save transit fees.</p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="text-slate-400 border-b border-slate-800">
+                    <th class="pb-2">Source ASN</th>
+                    <th class="pb-2">Destination ASN</th>
+                    <th class="pb-2">Category</th>
+                    <th class="pb-2 text-right">Current Mbps</th>
+                    <th class="pb-2 text-right">Est. Monthly Transit Cost</th>
+                    <th class="pb-2 text-center">Peering Action</th>
+                  </tr>
+                </thead>
+                <tbody id="table-asn-matrix" class="divide-y divide-slate-800/60">
+                  <tr><td colspan="6" class="py-4 text-center text-slate-500">Loading ASN routing matrix...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 4: INTERFACE UTILIZATION & SITE-TO-SITE ================= -->
+      <section id="tab-interfaces" class="tab-pane hidden space-y-6">
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white">Interface-Level Utilization (IN / OUT Capacity)</h3>
+              <p class="text-xs text-slate-400">Monitoring 10G, 40G, 100G, and 400G ports across multi-vendor routers with saturation warnings (>80%)</p>
+            </div>
+            <div class="flex items-center space-x-2 text-xs">
+              <span class="px-2 py-1 rounded bg-red-500/20 text-red-400 border border-red-500/30 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> >80% Saturated</span>
+              <span class="px-2 py-1 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-semibold">>65% Warning</span>
+              <span class="px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">Healthy</span>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2">Device Hostname</th>
+                  <th class="pb-2">Vendor / Model</th>
+                  <th class="pb-2">Site / Location</th>
+                  <th class="pb-2">Interface</th>
+                  <th class="pb-2">Description / Alias</th>
+                  <th class="pb-2">Capacity</th>
+                  <th class="pb-2 text-right">Throughput</th>
+                  <th class="pb-2 w-48">Utilization %</th>
+                  <th class="pb-2 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody id="table-interface-util" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="9" class="py-4 text-center text-slate-500">Loading interface utilization telemetry...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="glass-card p-5 rounded-xl">
+          <h3 class="text-base font-semibold text-white mb-2">Site-to-Site & Cloud Interconnect WAN Matrix</h3>
+          <p class="text-xs text-slate-400 mb-4">Visualizing traffic patterns between physical data centers (NY4, FRA1, SG1, TY2) and Cloud VPCs (AWS, Azure, GCP)</p>
+          <div id="chart-site-to-site" class="w-full h-72"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 5: GEOGRAPHIC FLOW MAP ================= -->
+      <section id="tab-geomap" class="tab-pane hidden space-y-6">
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white">Geographic Flow Routing & Border Traffic</h3>
+              <p class="text-xs text-slate-400">Real-time source-to-destination geographic paths enriched via IP geolocation and BGP coordinates</p>
+            </div>
+            <span class="px-2.5 py-1 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-xs font-mono">Live Ingress/Egress Arcs</span>
+          </div>
+          <div id="leaflet-map" class="w-full h-[550px] rounded-lg border border-slate-800"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 6: SECURITY, DDOS & LATERAL MOVEMENT ================= -->
+      <section id="tab-security" class="tab-pane hidden space-y-6">
+        <!-- Cyber Attack Injection & Stress Test Console -->
+        <div class="glass-card p-5 rounded-xl border border-red-500/30 bg-gradient-to-br from-red-950/20 via-slate-900 to-slate-900 shadow-xl space-y-4">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div class="flex items-center space-x-3">
+              <div class="w-9 h-9 rounded-lg bg-red-600/20 text-red-400 flex items-center justify-center border border-red-500/30">
+                <i class="fa-solid fa-shield-virus text-base"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-white flex items-center space-x-2">
+                  <span>Cyber Attack Injection & Stress Test Console</span>
+                </h3>
+                <p class="text-xs text-slate-400">Launch or stop customized volumetric DDoS floods, protocol amplification, and lateral probing</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <span id="sec-attack-badge" class="px-2.5 py-1 rounded bg-slate-800 text-slate-400 text-xs font-mono font-bold">● SYSTEM IDLE</span>
+            </div>
+          </div>
+
+          <!-- Configuration Form Grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <!-- 1. Target IP -->
+            <div class="space-y-1.5">
+              <label class="block text-slate-300 font-semibold flex items-center justify-between">
+                <span>Target Victim IP</span>
+                <span class="text-[10px] text-red-400 font-mono">IPv4 Host</span>
+              </label>
+              <input type="text" id="atk-target-ip" value="10.0.1.50" placeholder="e.g. 10.0.1.50" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 font-mono outline-none focus:border-red-500">
+              <div class="flex flex-wrap gap-1 pt-0.5">
+                <button type="button" onclick="setAttackTarget('10.0.1.50', 'Web DC')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-mono">10.0.1.50</button>
+                <button type="button" onclick="setAttackTarget('10.0.2.10', 'DB Pool')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-mono">10.0.2.10</button>
+                <button type="button" onclick="setAttackTarget('10.1.5.20', 'Core App')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-mono">10.1.5.20</button>
+              </div>
+            </div>
+
+            <!-- 2. Protocol / Vector -->
+            <div class="space-y-1.5">
+              <label class="block text-slate-300 font-semibold">Attack Protocol & Vector</label>
+              <select id="atk-protocol" onchange="onAttackProtocolChange(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-red-500">
+                <option value="TCP_SYN" selected>TCP SYN Flood (Naked SYN, Port 443/80)</option>
+                <option value="UDP_DNS">UDP DNS Amplification (Port 53, 1420B Payloads)</option>
+                <option value="UDP_NTP">UDP NTP Amplification (Port 123 Monlist)</option>
+                <option value="ICMP">ICMP Echo Flood (Protocol 1 Ping Storm)</option>
+                <option value="HTTP">HTTP/HTTPS Layer 7 Flood (Port 80/443 GET)</option>
+                <option value="LATERAL">East-West Lateral Movement (SMB/RDP/SSH Scan)</option>
+                <option value="COMBINED">Combined Multi-Vector Assault (SYN + DNS + Scan)</option>
+              </select>
+              <span class="text-[10px] text-slate-500 block">Selects protocol, packet size & flags</span>
+            </div>
+
+            <!-- 3. Target Port -->
+            <div class="space-y-1.5">
+              <label class="block text-slate-300 font-semibold flex items-center justify-between">
+                <span>Target Port</span>
+                <span class="text-[10px] text-slate-500 font-mono">L4 Port</span>
+              </label>
+              <input type="number" id="atk-target-port" value="443" min="0" max="65535" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 font-mono outline-none focus:border-red-500">
+              <span class="text-[10px] text-slate-500 block">Destination port on victim host</span>
+            </div>
+
+            <!-- 4. Intensity & Action Buttons -->
+            <div class="space-y-1.5">
+              <label class="block text-slate-300 font-semibold">Attack Intensity / Volume</label>
+              <select id="atk-intensity" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-red-500 mb-2">
+                <option value="medium">Medium (~150 Mbps · 25k PPS)</option>
+                <option value="high" selected>High (~800 Mbps · 120k PPS)</option>
+                <option value="extreme">Extreme (~3.5 Gbps · 500k PPS)</option>
+              </select>
+              <div class="flex items-center space-x-2 pt-1">
+                <button type="button" onclick="startSimulatedAttack(false)" id="btn-sec-start-attack" class="flex-1 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-lg shadow-red-600/30 transition">
+                  <i class="fa-solid fa-play"></i>
+                  <span>Start Attack</span>
+                </button>
+                <button type="button" onclick="stopSimulatedAttack()" id="btn-sec-stop-attack" disabled class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-600 cursor-not-allowed font-bold text-xs flex items-center justify-center space-x-1.5 border border-slate-700/50 transition">
+                  <i class="fa-solid fa-stop"></i>
+                  <span>Stop Attack</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Attack Telemetry Banner (Dynamic) -->
+          <div id="sec-attack-live-banner" class="hidden p-3 rounded-xl bg-red-950/40 border border-red-500/40 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+            <div class="flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+              <span class="text-white font-bold">Blasting: <span id="live-atk-target" class="text-cyan-400">--</span></span>
+              <span class="text-slate-400">via <span id="live-atk-proto" class="text-amber-300">--</span></span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <div><span class="text-slate-400">Throughput:</span> <strong id="live-atk-rate" class="text-red-400">-- Mbps</strong></div>
+              <div><span class="text-slate-400">Rate:</span> <strong id="live-atk-pps" class="text-emerald-400">-- PPS</strong></div>
+              <div><span class="text-slate-400">Total Packets:</span> <strong id="live-atk-pkts" class="text-cyan-300">--</strong></div>
+              <div><span class="text-slate-400">Elapsed:</span> <strong id="live-atk-time" class="text-amber-400">00:00</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="glass-card p-5 rounded-xl border-l-4 border-l-red-500">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Active DDoS Attacks</span>
+              <i class="fa-solid fa-radiation text-red-500 text-lg"></i>
+            </div>
+            <div class="text-3xl font-bold text-red-400 mt-2" id="sec-ddos-count">0</div>
+            <p class="text-xs text-slate-400 mt-1">Volumetric, SYN floods & UDP amp</p>
+          </div>
+          <div class="glass-card p-5 rounded-xl border-l-4 border-l-amber-500">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 uppercase">East-West Lateral Movement</span>
+              <i class="fa-solid fa-bug text-amber-500 text-lg"></i>
+            </div>
+            <div class="text-3xl font-bold text-amber-400 mt-2" id="sec-lateral-count">0</div>
+            <p class="text-xs text-slate-400 mt-1">Internal unauthorized traversals</p>
+          </div>
+          <div class="glass-card p-5 rounded-xl border-l-4 border-l-purple-500">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Port Scans & Probing</span>
+              <i class="fa-solid fa-radar text-purple-500 text-lg"></i>
+            </div>
+            <div class="text-3xl font-bold text-purple-400 mt-2" id="sec-scan-count">0</div>
+            <p class="text-xs text-slate-400 mt-1">Reconnaissance attempts</p>
+          </div>
+        </div>
+
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white flex items-center space-x-2">
+                <span class="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+                <span>Real-Time DDoS Attack Radar & BGP Flowspec Mitigation</span>
+              </h3>
+              <p class="text-xs text-slate-400">Automated baseline anomaly detection with one-click border mitigation</p>
+            </div>
+          </div>
+          <div id="ddos-attack-cards" class="space-y-4">
+            <div class="p-6 text-center text-slate-500 font-mono text-xs">Scanning for active DDoS attacks...</div>
+          </div>
+        </div>
+
+        <div class="glass-card p-5 rounded-xl">
+          <h3 class="text-base font-semibold text-white mb-2">Lateral Movement & Network Anomalies</h3>
+          <p class="text-xs text-slate-400 mb-4">East-West cross-datacenter communications hitting sensitive admin ports (SMB, RDP, SSH, WinRM)</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2">Timestamp</th>
+                  <th class="pb-2">Category</th>
+                  <th class="pb-2">Severity</th>
+                  <th class="pb-2">Source IP</th>
+                  <th class="pb-2">Target IP</th>
+                  <th class="pb-2">Description</th>
+                  <th class="pb-2 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody id="table-security-anomalies" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="7" class="py-4 text-center text-slate-500">Checking for security anomalies...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 7: QOS & CBQOS VALIDATION ================= -->
+      <section id="tab-qos" class="tab-pane hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="glass-card p-5 rounded-xl lg:col-span-1">
+            <h3 class="text-sm font-semibold text-white mb-2">DSCP Traffic Class Distribution</h3>
+            <p class="text-xs text-slate-400 mb-4">Breakdown of traffic marked EF (Voice), AF41 (Video), CS6 (BGP), and CS0 (Best Effort)</p>
+            <div id="chart-qos-distribution" class="w-full h-64"></div>
+          </div>
+          <div class="glass-card p-5 rounded-xl lg:col-span-2">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-semibold text-white">QoS Policy Compliance & CBQoS Verification</h3>
+              <span id="badge-qos-status" class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-xs font-semibold border border-emerald-500/20">Checking Policy...</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">Verifying that mission-critical VoIP, Video, and BGP routing are not degraded to Best-Effort (CS0).</p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="text-slate-400 border-b border-slate-800">
+                    <th class="pb-2">DSCP Tag</th>
+                    <th class="pb-2">QoS Priority Class</th>
+                    <th class="pb-2">Application Type</th>
+                    <th class="pb-2 text-right">Throughput</th>
+                    <th class="pb-2 text-right">Traffic Share</th>
+                  </tr>
+                </thead>
+                <tbody id="table-qos-breakdown" class="divide-y divide-slate-800/60 font-mono">
+                  <tr><td colspan="5" class="py-4 text-center text-slate-500">Loading QoS classification data...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 8: CAPACITY FORECASTING ================= -->
+      <section id="tab-capacity" class="tab-pane hidden space-y-6">
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white">Interface Capacity Planning & Exhaustion Forecast</h3>
+              <p class="text-xs text-slate-400">Statistical linear trend forecasting predicting future bandwidth saturation dates</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <select id="select-capacity-device" onchange="loadCapacityForecast()" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-2.5 py-1">
+                <option value="dev-0001">Cisco ASR-9904 (NY4-Core-001)</option>
+                <option value="dev-0002">Juniper PTX10001 (FRA1-Peer-002)</option>
+                <option value="dev-0003">Huawei NE8000 (TY2-Edge-003)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Provisioned Speed</span>
+              <div class="text-xl font-bold text-white mt-1" id="cap-speed">100 Gbps</div>
+            </div>
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Current Peak Rate</span>
+              <div class="text-xl font-bold text-cyan-400 mt-1" id="cap-current-peak">-- Gbps</div>
+            </div>
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Days to 85% Warning</span>
+              <div class="text-xl font-bold text-amber-400 mt-1" id="cap-days-85">-- Days</div>
+            </div>
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Forecasted Exhaustion Date</span>
+              <div class="text-xl font-bold text-red-400 mt-1" id="cap-exhaust-date">YYYY-MM-DD</div>
+            </div>
+          </div>
+
+          <div id="chart-capacity-forecast" class="w-full h-72"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 9: BILLING & 95TH PERCENTILE ================= -->
+      <section id="tab-billing" class="tab-pane hidden space-y-6">
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white">95th Percentile Burstable Invoicing Engine</h3>
+              <p class="text-xs text-slate-400">Standard carrier burstable calculation: 5-minute sampling intervals over billing cycles with top 5% bursts discarded</p>
+            </div>
+            <span class="px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 text-xs font-semibold border border-emerald-500/20">RFC Burstable Formula</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Commitment Rate (CIR)</span>
+              <div class="text-xl font-bold text-white mt-1">5.00 Gbps</div>
+            </div>
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Calculated 95th Percentile</span>
+              <div class="text-xl font-bold text-cyan-400 mt-1" id="bill-p95">-- Gbps</div>
+            </div>
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Total Data Transferred</span>
+              <div class="text-xl font-bold text-purple-400 mt-1" id="bill-total-tb">-- TB</div>
+            </div>
+            <div class="p-4 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-xs text-slate-400">Estimated Monthly Invoice</span>
+              <div class="text-xl font-bold text-emerald-400 mt-1" id="bill-invoice-usd">$0.00</div>
+            </div>
+          </div>
+
+          <h4 class="text-sm font-semibold text-white mb-3">Departmental & Customer Chargeback Reports</h4>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2">Customer / Department Tenant</th>
+                  <th class="pb-2 text-right">Data Volume</th>
+                  <th class="pb-2 text-right">Rate ($ / TB)</th>
+                  <th class="pb-2 text-right">Calculated Chargeback</th>
+                </tr>
+              </thead>
+              <tbody id="table-chargebacks" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="4" class="py-4 text-center text-slate-500">Loading chargeback calculations...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 10: MULTI-VENDOR DEVICE INVENTORY ================= -->
+      <section id="tab-devices" class="tab-pane hidden space-y-6">
+        <!-- Zero-Touch Ingestion Info Callout -->
+        <div class="p-4 rounded-xl bg-gradient-to-r from-cyan-950/40 via-slate-900 to-slate-900 border border-cyan-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div class="flex items-start space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 mt-0.5 border border-cyan-500/30">
+              <i class="fa-solid fa-satellite-dish text-sm"></i>
+            </div>
+            <div>
+              <div class="text-sm font-semibold text-white flex items-center space-x-2">
+                <span>Zero-Touch Flow Ingestion Active</span>
+                <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">Auto-Discovery</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">
+                No manual registration is needed to begin capturing traffic. Just point your router's flow export to this server (<span class="text-cyan-400 font-mono">NetFlow UDP 2055/2056</span>, <span class="text-cyan-400 font-mono">IPFIX UDP 4739</span>, or <span class="text-cyan-400 font-mono">sFlow UDP 6343</span>). The engine auto-discovers and indexes routers in real time.
+              </p>
+            </div>
+          </div>
+          <button onclick="openRouterConfigModal()" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-cyan-600/30 transition shrink-0">
+            <i class="fa-solid fa-terminal"></i>
+            <span>Router Config Cheatsheet</span>
+          </button>
+        </div>
+
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white">Multi-Vendor Device Inventory (1,000+ Hardware Elements)</h3>
+              <p class="text-xs text-slate-400">Cisco Systems, Juniper Networks, Huawei, Nokia TiMOS, ZTE, and MikroTik RouterOS devices</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <select id="filter-device-vendor" onchange="loadDevicesList()" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-2.5 py-1">
+                <option value="">All Vendors</option>
+                <option value="Auto-Discovered">⚡ Auto-Discovered Exporters</option>
+                <option value="Cisco">Cisco Systems</option>
+                <option value="Juniper">Juniper Networks</option>
+                <option value="Huawei">Huawei NetEngine</option>
+                <option value="Nokia">Nokia 7750 SR</option>
+                <option value="ZTE">ZTE Corporation</option>
+                <option value="MikroTik">MikroTik RouterOS</option>
+              </select>
+            </div>
+          </div>
+          <div class="overflow-x-auto max-h-[550px] overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="sticky top-0 bg-slate-900 z-10">
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2">Device ID</th>
+                  <th class="pb-2">Hostname</th>
+                  <th class="pb-2">Management IP</th>
+                  <th class="pb-2">Vendor</th>
+                  <th class="pb-2">Model Hardware</th>
+                  <th class="pb-2">Role</th>
+                  <th class="pb-2">Datacenter / Site</th>
+                  <th class="pb-2">Protocol</th>
+                  <th class="pb-2">Sampling Rate</th>
+                  <th class="pb-2 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody id="table-devices-list" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="10" class="py-4 text-center text-slate-500">Loading devices...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 11: RAW FLOW EXPLORER ================= -->
+      <section id="tab-explorer" class="tab-pane hidden space-y-6">
+        <div class="glass-card p-5 rounded-xl">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-semibold text-white">Raw Flow Explorer & Multi-Dimensional Search</h3>
+              <p class="text-xs text-slate-400">Direct SQL columnar querying over historical flows with microsecond resolution</p>
+            </div>
+            <button onclick="queryRawFlows()" class="px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold">Execute Query</button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+            <input type="text" id="filter-src-ip" placeholder="Source IP prefix (e.g. 10.0)" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-3 py-1.5 focus:border-cyan-500 outline-none">
+            <input type="text" id="filter-dst-ip" placeholder="Destination IP prefix (e.g. 8.8)" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-3 py-1.5 focus:border-cyan-500 outline-none">
+            <select id="filter-proto" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-3 py-1.5">
+              <option value="">All Protocols</option>
+              <option value="6">TCP (6)</option>
+              <option value="17">UDP (17)</option>
+              <option value="1">ICMP (1)</option>
+            </select>
+            <select id="filter-dscp" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-3 py-1.5">
+              <option value="">All DSCP Classes</option>
+              <option value="0">CS0 (Best Effort)</option>
+              <option value="46">EF (Voice 46)</option>
+              <option value="34">AF41 (Video 34)</option>
+              <option value="48">CS6 (Routing 48)</option>
+            </select>
+          </div>
+
+          <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="sticky top-0 bg-slate-900 z-10">
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2">Timestamp</th>
+                  <th class="pb-2">Exporter Router</th>
+                  <th class="pb-2">Source IP</th>
+                  <th class="pb-2">Src ASN</th>
+                  <th class="pb-2">Destination IP</th>
+                  <th class="pb-2">Dst ASN</th>
+                  <th class="pb-2">Proto</th>
+                  <th class="pb-2">Port</th>
+                  <th class="pb-2">Application</th>
+                  <th class="pb-2">DSCP</th>
+                  <th class="pb-2 text-right">Packets</th>
+                  <th class="pb-2 text-right">Bytes</th>
+                </tr>
+              </thead>
+              <tbody id="table-raw-flows" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="12" class="py-4 text-center text-slate-500">Press "Execute Query" to load flows...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ================= MODAL: CREATE / EDIT AUTOMATED REPORT ================= -->
+  <div id="modal-report" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="glass-card max-w-2xl w-full rounded-2xl border border-slate-700 p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-file-circle-plus text-emerald-400"></i>
+          <span id="modal-report-title">Create Condition-Based Automated Report</span>
+        </h3>
+        <button onclick="closeCreateReportModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Report Name</label>
+          <input type="text" id="rep-form-name" placeholder="e.g. Transit to Peering Cost & Saturation Report" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-500">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Description / Purpose</label>
+          <input type="text" id="rep-form-desc" placeholder="e.g. Daily tracking of 100GE links between AS3356 and AS15169" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Execution Schedule</label>
+            <select id="rep-form-schedule" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-500">
+              <option value="ON_DEMAND">On Demand (Manual Trigger Only)</option>
+              <option value="HOURLY">Hourly (Every 60 Minutes)</option>
+              <option value="DAILY" selected>Daily (Every 24 Hours)</option>
+              <option value="WEEKLY">Weekly (Every 7 Days)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Analysis Time Window</label>
+            <select id="rep-form-window" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-500">
+              <option value="60" selected>Last 1 Hour</option>
+              <option value="360">Last 6 Hours</option>
+              <option value="1440">Last 24 Hours</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-2">
+          <span class="block text-[11px] font-bold text-cyan-400 uppercase">Multi-Condition Traffic Scope</span>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <input type="text" id="rep-form-src-as" placeholder="Source ASN (e.g. 3356)" class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            <input type="text" id="rep-form-dst-as" placeholder="Dest ASN (e.g. 15169)" class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            <input type="text" id="rep-form-src-prefix" placeholder="Src Prefix (10.0.0.0/16)" class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            <input type="text" id="rep-form-dst-prefix" placeholder="Dst Prefix (8.8.8.0/24)" class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            <input type="text" id="rep-form-in-if" placeholder="Interface (e.g. 100GE1/0/1)" class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            <input type="text" id="rep-form-country" placeholder="Dest Country (e.g. US)" class="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Email Delivery Recipients (comma separated)</label>
+          <input type="text" id="rep-form-emails" placeholder="noc-alerts@company.com, netops-lead@carrier.net" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-500">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Webhook URL (Slack, MS Teams, or SIEM)</label>
+          <input type="text" id="rep-form-webhook" placeholder="https://hooks.slack.com/services/... or http://siem.local/webhook" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-500">
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end space-x-3 border-t border-slate-800 pt-3">
+        <button onclick="closeCreateReportModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">Cancel</button>
+        <button onclick="submitSaveReport()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-emerald-600/30">
+          <i class="fa-solid fa-floppy-disk"></i>
+          <span>Save & Schedule Report</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: NOTIFICATIONS & TEST DISPATCH ================= -->
+  <div id="modal-notification" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="glass-card max-w-xl w-full rounded-2xl border border-slate-700 p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+          <i class="fa-solid fa-bell text-amber-400"></i>
+          <span>Notification Center & Dispatch Verification</span>
+        </h3>
+        <button onclick="closeNotificationModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-2">
+          <span class="block font-bold text-cyan-400">Send Test Notification</span>
+          <p class="text-slate-400 text-[11px]">Verify your SMTP email and webhook endpoint delivery.</p>
+          <div class="space-y-2">
+            <input type="email" id="test-notif-email" placeholder="Recipient email address (e.g. noc@carrier.net)" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            <input type="text" id="test-notif-webhook" placeholder="Webhook URL (Slack, MS Teams, SIEM)" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+            <button onclick="dispatchTestNotification()" class="w-full py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-cyan-600/30">
+              <i class="fa-solid fa-paper-plane"></i>
+              <span>Dispatch Test Alert</span>
+            </button>
+          </div>
+        </div>
+
+        <h4 class="font-bold text-white text-xs pt-2">Recent In-App Alert Logs</h4>
+        <div id="list-notifications-log" class="space-y-2 max-h-56 overflow-y-auto">
+          <div class="p-3 text-center text-slate-500">Loading notification history...</div>
+        </div>
+      </div>
+
+      <div class="flex justify-end border-t border-slate-800 pt-3">
+        <button onclick="closeNotificationModal()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Router Configuration Cheatsheet Modal -->
+  <div id="modal-router-config" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="glass-card max-w-3xl w-full p-6 rounded-2xl border border-cyan-500/30 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+            <i class="fa-solid fa-terminal text-sm"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Multi-Vendor Router Configuration Guide</h3>
+            <p class="text-xs text-slate-400">Zero-Touch Ingestion: Configure router to export flows; no manual app setup required</p>
+          </div>
+        </div>
+        <button onclick="closeRouterConfigModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <!-- Quick Listening Ports Reference -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
+        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+          <span class="text-slate-400 block text-[10px]">NetFlow v5</span>
+          <span class="text-cyan-400 font-bold">UDP 2055</span>
+        </div>
+        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+          <span class="text-slate-400 block text-[10px]">NetFlow v9</span>
+          <span class="text-cyan-400 font-bold">UDP 2056</span>
+        </div>
+        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+          <span class="text-slate-400 block text-[10px]">IPFIX (RFC 7011)</span>
+          <span class="text-emerald-400 font-bold">UDP 4739</span>
+        </div>
+        <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-center">
+          <span class="text-slate-400 block text-[10px]">sFlow v5</span>
+          <span class="text-purple-400 font-bold">UDP 6343</span>
+        </div>
+      </div>
+
+      <!-- CLI Tabs -->
+      <div class="space-y-3">
+        <!-- Cisco -->
+        <details class="bg-slate-900/80 rounded-xl border border-slate-800 p-3" open>
+          <summary class="font-bold text-xs text-cyan-400 cursor-pointer flex items-center space-x-2">
+            <i class="fa-solid fa-network-wired"></i>
+            <span>Cisco IOS-XE / IOS-XR (Flexible NetFlow / IPFIX)</span>
+          </summary>
+          <pre class="mt-2 text-[11px] font-mono text-slate-300 bg-slate-950 p-3 rounded-lg overflow-x-auto border border-slate-800/80">flow record REC-AEGISFLOW
+ match ipv4 protocol
+ match ipv4 source address
+ match ipv4 destination address
+ match transport source-port
+ match transport destination-port
+ collect counter bytes long
+ collect counter packets long
+ collect timestamp sys-uptime first
+ collect timestamp sys-uptime last
+!
+flow exporter EXP-AEGISFLOW
+ destination &lt;THIS_SERVER_IP&gt;
+ transport udp 2056
+ export-protocol netflow-v9
+!
+flow monitor MON-AEGISFLOW
+ exporter EXP-AEGISFLOW
+ record REC-AEGISFLOW
+ cache timeout active 60
+ cache timeout inactive 15
+!
+interface HundredGigE0/0/0/1
+ ip flow monitor MON-AEGISFLOW input
+ ip flow monitor MON-AEGISFLOW output</pre>
+        </details>
+
+        <!-- Juniper -->
+        <details class="bg-slate-900/80 rounded-xl border border-slate-800 p-3">
+          <summary class="font-bold text-xs text-purple-400 cursor-pointer flex items-center space-x-2">
+            <i class="fa-solid fa-server"></i>
+            <span>Juniper Networks Junos (Inline IPFIX)</span>
+          </summary>
+          <pre class="mt-2 text-[11px] font-mono text-slate-300 bg-slate-950 p-3 rounded-lg overflow-x-auto border border-slate-800/80">set services flow-monitoring version-ipfix template IPFIX-TMP flow-active-timeout 60
+set services flow-monitoring version-ipfix template IPFIX-TMP flow-inactive-timeout 15
+set forwarding-options sampling instance FLOW-INST input rate 1000
+set forwarding-options sampling instance FLOW-INST family inet output flow-server &lt;THIS_SERVER_IP&gt; port 4739
+set forwarding-options sampling instance FLOW-INST family inet output flow-server &lt;THIS_SERVER_IP&gt; version-ipfix template IPFIX-TMP
+set interfaces et-0/0/0 unit 0 family inet sampling input</pre>
+        </details>
+
+        <!-- Huawei -->
+        <details class="bg-slate-900/80 rounded-xl border border-slate-800 p-3">
+          <summary class="font-bold text-xs text-red-400 cursor-pointer flex items-center space-x-2">
+            <i class="fa-solid fa-microchip"></i>
+            <span>Huawei VRP (NetStream v9)</span>
+          </summary>
+          <pre class="mt-2 text-[11px] font-mono text-slate-300 bg-slate-950 p-3 rounded-lg overflow-x-auto border border-slate-800/80">ip netstream export host &lt;THIS_SERVER_IP&gt; 2056
+ip netstream export version 9
+ip netstream timeout active 1
+ip netstream timeout inactive 15
+!
+interface 100GE1/0/1
+ ip netstream inbound
+ ip netstream outbound</pre>
+        </details>
+
+        <!-- Nokia -->
+        <details class="bg-slate-900/80 rounded-xl border border-slate-800 p-3">
+          <summary class="font-bold text-xs text-cyan-300 cursor-pointer flex items-center space-x-2">
+            <i class="fa-solid fa-satellite"></i>
+            <span>Nokia 7750 SR / SR OS (cflowd / IPFIX)</span>
+          </summary>
+          <pre class="mt-2 text-[11px] font-mono text-slate-300 bg-slate-950 p-3 rounded-lg overflow-x-auto border border-slate-800/80">/configure cflowd
+  active-timeout 1
+  inactive-timeout 15
+  collector &lt;THIS_SERVER_IP&gt;:4739 version ipfix
+  no shutdown
+/configure router interface "to-core"
+  cflowd-parameters
+    sampling unicast type interface
+    direction both
+  exit</pre>
+        </details>
+
+        <!-- MikroTik -->
+        <details class="bg-slate-900/80 rounded-xl border border-slate-800 p-3">
+          <summary class="font-bold text-xs text-emerald-400 cursor-pointer flex items-center space-x-2">
+            <i class="fa-solid fa-diagram-project"></i>
+            <span>MikroTik RouterOS (Traffic Flow)</span>
+          </summary>
+          <pre class="mt-2 text-[11px] font-mono text-slate-300 bg-slate-950 p-3 rounded-lg overflow-x-auto border border-slate-800/80">/ip traffic-flow set enabled=yes active-flow-timeout=1m inactive-flow-timeout=15s
+/ip traffic-flow target add address=&lt;THIS_SERVER_IP&gt;:2055 version=5
+/ip traffic-flow target add address=&lt;THIS_SERVER_IP&gt;:4739 version=ipfix</pre>
+        </details>
+      </div>
+
+      <div class="flex justify-end border-t border-slate-800 pt-3">
+        <button onclick="closeRouterConfigModal()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cyber Attack Injection Modal -->
+  <div id="modal-attack-console" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="glass-card max-w-xl w-full p-6 rounded-2xl border border-red-500/40 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-red-600/20 text-red-400 flex items-center justify-center border border-red-500/30">
+            <i class="fa-solid fa-shield-virus text-sm"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Inject Test Cyber Attack</h3>
+            <p class="text-xs text-slate-400">Define victim IP, attack vector, and launch live simulated DDoS assault</p>
+          </div>
+        </div>
+        <button onclick="closeAttackConsoleModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1 flex items-center justify-between">
+            <span>Target Victim IP Address</span>
+            <span class="text-[10px] text-red-400 font-mono">IPv4 Target</span>
+          </label>
+          <input type="text" id="modal-atk-target-ip" value="10.0.1.50" placeholder="e.g. 10.0.1.50" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-red-500">
+          <div class="flex flex-wrap gap-1.5 pt-1.5">
+            <button type="button" onclick="setAttackTarget('10.0.1.50', 'Web DC')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-mono">10.0.1.50 (Web DC)</button>
+            <button type="button" onclick="setAttackTarget('10.0.2.10', 'DB Pool')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-mono">10.0.2.10 (DB Pool)</button>
+            <button type="button" onclick="setAttackTarget('10.1.5.20', 'Core App')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-mono">10.1.5.20 (Core App)</button>
+            <button type="button" onclick="setAttackTarget('192.168.1.100', 'Edge Host')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[10px] font-mono">192.168.1.100 (Edge)</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Attack Protocol & Vector</label>
+            <select id="modal-atk-protocol" onchange="onAttackProtocolChange(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 outline-none focus:border-red-500">
+              <option value="TCP_SYN" selected>TCP SYN Flood (Naked SYN, Port 443/80)</option>
+              <option value="UDP_DNS">UDP DNS Amplification (Port 53, 1420B)</option>
+              <option value="UDP_NTP">UDP NTP Amplification (Port 123)</option>
+              <option value="ICMP">ICMP Echo Flood (Protocol 1 Ping Storm)</option>
+              <option value="HTTP">HTTP/HTTPS Layer 7 Flood (Port 80/443)</option>
+              <option value="LATERAL">East-West Lateral Movement (SMB/RDP/SSH)</option>
+              <option value="COMBINED">Combined Multi-Vector Assault</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Target Destination Port</label>
+            <input type="number" id="modal-atk-target-port" value="443" min="0" max="65535" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-red-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Attack Volume / Rate Intensity</label>
+          <select id="modal-atk-intensity" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 outline-none focus:border-red-500">
+            <option value="medium">Medium (~150 Mbps · 25,000 PPS)</option>
+            <option value="high" selected>High (~800 Mbps · 120,000 PPS - Recommended)</option>
+            <option value="extreme">Extreme (~3.5 Gbps · 500,000 PPS Carrier-Scale)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between border-t border-slate-800 pt-3">
+        <button onclick="closeAttackConsoleModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">Cancel</button>
+        <div class="flex items-center space-x-2">
+          <button type="button" onclick="stopSimulatedAttack()" id="btn-modal-stop-attack" class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 cursor-not-allowed font-bold text-xs flex items-center space-x-1.5 border border-slate-700">
+            <i class="fa-solid fa-stop"></i>
+            <span>Stop Attack</span>
+          </button>
+          <button type="button" onclick="startSimulatedAttack(true)" id="btn-modal-start-attack" class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-red-600/30 transition">
+            <i class="fa-solid fa-play"></i>
+            <span>Start Attack</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2"></div>
+
+  <!-- Scripts -->
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

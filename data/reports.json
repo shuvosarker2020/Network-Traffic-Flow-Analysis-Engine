@@ -1,0 +1,136 @@
+{
+  "rep-transit-peering": {
+    "id": "rep-transit-peering",
+    "name": "Tier-1 Transit to Google Peering Utilization",
+    "description": "Monitors traffic flowing between Paid Transit AS3356 (Lumen) and AS15169 (Google) on 100G interfaces.",
+    "conditions": {
+      "src_as": 3356,
+      "dst_as": 15169,
+      "time_window_minutes": 60
+    },
+    "schedule": "DAILY",
+    "recipients": [
+      "noc-lead@carrier.internal",
+      "netops@company.com"
+    ],
+    "webhook_url": "http://localhost:8080/api/v1/alerts/mock-webhook",
+    "created_at": 1793248164,
+    "last_run": 1793248489,
+    "status": "ACTIVE"
+  },
+  "rep-internal-east-west": {
+    "id": "rep-internal-east-west",
+    "name": "East-West Core Ring WAN Subnet 10.0.0.0/16",
+    "description": "Analyzes internal cross-datacenter traffic originating from 10.0.0.0/16 heading to core routers.",
+    "conditions": {
+      "src_prefix": "10.0.0.0/16",
+      "flow_direction": "East-West",
+      "time_window_minutes": 60
+    },
+    "schedule": "WEEKLY",
+    "recipients": [
+      "dc-infra@carrier.internal"
+    ],
+    "webhook_url": "",
+    "created_at": 1793248164,
+    "last_run": 1793248497,
+    "status": "ACTIVE"
+  },
+  "rep-0c5dad20": {
+    "id": "rep-0c5dad20",
+    "name": "Integration Test Transit Report",
+    "description": "",
+    "conditions": {
+      "src_prefix": "10.0.0.0/16",
+      "time_window_minutes": 60
+    },
+    "schedule": "DAILY",
+    "recipients": [
+      "noc@test.internal"
+    ],
+    "webhook_url": "",
+    "created_at": 1793248164,
+    "last_run": 1793248164,
+    "status": "ACTIVE"
+  },
+  "rep-bc35dd09": {
+    "id": "rep-bc35dd09",
+    "name": "Lumen Transit to Google DC Saturation Report",
+    "description": "Monitors traffic from AS3356 to AS15169 over 100GE links with automated daily email dispatch.",
+    "conditions": {
+      "src_as": 3356,
+      "dst_as": 15169,
+      "src_prefix": "10.0.0.0/16",
+      "time_window_minutes": 60
+    },
+    "schedule": "DAILY",
+    "recipients": [
+      "netops-lead@carrier.internal",
+      "capacity-planning@company.com"
+    ],
+    "webhook_url": "http://localhost:8080/api/v1/alerts/mock-webhook",
+    "created_at": 1793248609,
+    "last_run": 1793248611,
+    "status": "ACTIVE"
+  },
+  "rep-10d79491": {
+    "id": "rep-10d79491",
+    "name": "Lumen Transit to Google DC Saturation Report",
+    "description": "Monitors traffic from AS3356 to AS15169 over 100GE links with automated daily email dispatch.",
+    "conditions": {
+      "src_as": 3356,
+      "dst_as": 15169,
+      "src_prefix": "10.0.0.0/16",
+      "time_window_minutes": 60
+    },
+    "schedule": "DAILY",
+    "recipients": [
+      "netops-lead@carrier.internal",
+      "capacity-planning@company.com"
+    ],
+    "webhook_url": "http://localhost:8080/api/v1/alerts/mock-webhook",
+    "created_at": 1793266899,
+    "last_run": 1793266901,
+    "status": "ACTIVE"
+  },
+  "rep-4f4255f1": {
+    "id": "rep-4f4255f1",
+    "name": "Lumen Transit to Google DC Saturation Report",
+    "description": "Monitors traffic from AS3356 to AS15169 over 100GE links with automated daily email dispatch.",
+    "conditions": {
+      "src_as": 3356,
+      "dst_as": 15169,
+      "src_prefix": "10.0.0.0/16",
+      "time_window_minutes": 60
+    },
+    "schedule": "DAILY",
+    "recipients": [
+      "netops-lead@carrier.internal",
+      "capacity-planning@company.com"
+    ],
+    "webhook_url": "http://localhost:8080/api/v1/alerts/mock-webhook",
+    "created_at": 1793266929,
+    "last_run": 1793266957,
+    "status": "ACTIVE"
+  },
+  "rep-4c3ea627": {
+    "id": "rep-4c3ea627",
+    "name": "Lumen Transit to Google DC Saturation Report",
+    "description": "Monitors traffic from AS3356 to AS15169 over 100GE links with automated daily email dispatch.",
+    "conditions": {
+      "src_as": 3356,
+      "dst_as": 15169,
+      "src_prefix": "10.0.0.0/16",
+      "time_window_minutes": 60
+    },
+    "schedule": "DAILY",
+    "recipients": [
+      "netops-lead@carrier.internal",
+      "capacity-planning@company.com"
+    ],
+    "webhook_url": "http://localhost:8080/api/v1/alerts/mock-webhook",
+    "created_at": 1793280987,
+    "last_run": 1793280989,
+    "status": "ACTIVE"
+  }
+}

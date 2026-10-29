@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # ClickHouse Columnar OLAP Database (Multi-Month Retention for Billions of Flows)
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: aegisflow-clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123" # HTTP API
+      - "9000:9000" # Native TCP client
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ch_data:/var/lib/clickhouse
+      - ./storage/schema_clickhouse.sql:/docker-entrypoint-initdb.d/schema.sql
+    environment:
+      - CLICKHOUSE_DB=aegisflow
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+
+  # AegisFlow Collector, Analytics & Observability Core
+  aegisflow-core:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: aegisflow-core
+    restart: unless-stopped
+    depends_on:
+      - clickhouse
+    ports:
+      - "8080:8080" # Web UI and REST API
+      - "2055:2055/udp" # NetFlow v5
+      - "2056:2056/udp" # NetFlow v9
+      - "4739:4739/udp" # IPFIX (RFC 7011)
+      - "6343:6343/udp" # sFlow v5
+    environment:
+      - STORAGE_ENGINE=clickhouse
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+    volumes:
+      - ../config:/app/config
+      - ../data:/app/data
+
+volumes:
+  ch_data:

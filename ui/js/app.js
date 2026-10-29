@@ -1,0 +1,1393 @@
+/**
+ * AegisFlow Main Application Frontend Logic
+ */
+
+let currentTab = 'overview';
+let leafletMap = null;
+let leafletFlowLayer = null;
+let ws = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  initCharts();
+  initClock();
+  initWebSocket();
+  loadOverview();
+  pollAttackStatus();
+
+  // Auto-refresh data every 10 seconds
+  setInterval(() => {
+    refreshCurrentTab();
+  }, 10000);
+});
+
+function initClock() {
+  const clockEl = document.getElementById('live-clock');
+  setInterval(() => {
+    const now = new Date();
+    clockEl.innerText = now.toUTCString().split(' ')[4] + ' UTC';
+  }, 1000);
+}
+
+function initWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws/live`;
+  try {
+    ws = new WebSocket(wsUrl);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'KPI_TICK') {
+          updateKpis(msg.data);
+        } else if (msg.type === 'ATTACK_TICK') {
+          updateAttackStatusUI(msg.data);
+        }
+      } catch (e) { }
+    };
+    ws.onclose = () => {
+      setTimeout(initWebSocket, 5000);
+    };
+  } catch (e) { }
+}
+
+function switchTab(tabId) {
+  currentTab = tabId;
+
+  // Update nav buttons
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.className = "nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60";
+  });
+  const activeBtn = document.getElementById(`nav-${tabId}`);
+  if (activeBtn) {
+    activeBtn.className = "nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-white bg-cyan-600/20 border border-cyan-500/30";
+  }
+
+  // Hide all tabs, show selected
+  document.querySelectorAll('.tab-pane').forEach(el => el.classList.add('hidden'));
+  const activePane = document.getElementById(`tab-${tabId}`);
+  if (activePane) activePane.classList.remove('hidden');
+
+  // Trigger tab-specific loaders and resize charts
+  setTimeout(() => {
+    if (tabId === 'overview') loadOverview();
+    else if (tabId === 'pattern') loadPatternStudio();
+    else if (tabId === 'top-talkers') loadTopTalkers();
+    else if (tabId === 'peering') loadPeering();
+    else if (tabId === 'interfaces') loadInterfaces();
+    else if (tabId === 'geomap') loadGeoMap();
+    else if (tabId === 'security') loadSecurity();
+    else if (tabId === 'qos') loadQoS();
+    else if (tabId === 'capacity') loadCapacityForecast();
+    else if (tabId === 'billing') loadBilling();
+    else if (tabId === 'reports') loadReports();
+    else if (tabId === 'devices') loadDevicesList();
+    else if (tabId === 'explorer') queryRawFlows();
+
+    window.dispatchEvent(new Event('resize'));
+  }, 50);
+}
+
+function refreshCurrentTab() {
+  switchTab(currentTab);
+}
+
+// ================= LOADERS =================
+
+async function loadOverview() {
+  try {
+    const [kpiRes, tsRes, appsRes] = await Promise.all([
+      fetch('/api/v1/overview?minutes=60'),
+      fetch('/api/v1/throughput-timeseries?minutes=60'),
+      fetch('/api/v1/applications?limit=6&minutes=60')
+    ]);
+
+    const kpi = await kpiRes.json();
+    const timeseries = await tsRes.json();
+    const apps = await appsRes.json();
+
+    updateKpis(kpi);
+    updateThroughputChart(timeseries);
+    updateAppPieChart(apps);
+
+    // Direction breakdown synthetic/cached
+    updateDirectionPieChart([
+      { name: 'North-South Outbound', value: 55 },
+      { name: 'North-South Inbound', value: 25 },
+      { name: 'East-West Internal', value: 15 },
+      { name: 'External Transit', value: 5 }
+    ]);
+  } catch (e) {
+    console.error('Failed to load overview:', e);
+  }
+}
+
+function updateKpis(kpi) {
+  if (!kpi) return;
+  const gbps = (kpi.avg_gbps || 0).toFixed(2);
+  document.getElementById('kpi-mbps').innerText = `${gbps} Gbps`;
+  document.getElementById('kpi-pps').innerText = `${Math.round((kpi.avg_pps || 0) / 1000)} kpps`;
+  document.getElementById('kpi-flows').innerText = (kpi.total_flows || 0).toLocaleString();
+  document.getElementById('kpi-devices').innerText = (kpi.active_devices || 1000).toLocaleString();
+}
+
+async function loadTopTalkers() {
+  try {
+    const [srcRes, dstRes, convRes] = await Promise.all([
+      fetch('/api/v1/top-talkers/sources?limit=8&minutes=60'),
+      fetch('/api/v1/top-talkers/destinations?limit=8&minutes=60'),
+      fetch('/api/v1/conversations?limit=12&minutes=60')
+    ]);
+
+    const sources = await srcRes.json();
+    const destinations = await dstRes.json();
+    const convs = await convRes.json();
+
+    // Render Sources
+    const srcTbody = document.getElementById('table-top-sources');
+    srcTbody.innerHTML = sources.map(s => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2 text-cyan-400 font-semibold">${s.src_ip}</td>
+        <td class="py-2 text-slate-300">${s.src_country} · ${s.src_as_name || 'AS'}</td>
+        <td class="py-2 text-slate-400">${s.src_cloud}</td>
+        <td class="py-2 text-right text-emerald-400 font-bold">${s.mbps} Mbps</td>
+        <td class="py-2 text-right text-slate-400">${formatBytes(s.bytes)}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" class="py-3 text-center text-slate-500">No data</td></tr>';
+
+    // Render Destinations
+    const dstTbody = document.getElementById('table-top-destinations');
+    dstTbody.innerHTML = destinations.map(d => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2 text-blue-400 font-semibold">${d.dst_ip}</td>
+        <td class="py-2 text-slate-300">${d.dst_country} · ${d.dst_as_name || 'AS'}</td>
+        <td class="py-2 text-slate-400">${d.dst_cloud}</td>
+        <td class="py-2 text-right text-emerald-400 font-bold">${d.mbps} Mbps</td>
+        <td class="py-2 text-right text-slate-400">${formatBytes(d.bytes)}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" class="py-3 text-center text-slate-500">No data</td></tr>';
+
+    // Render Conversations
+    const convTbody = document.getElementById('table-conversations');
+    convTbody.innerHTML = convs.map(c => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2 text-cyan-400">${c.src_ip} <span class="text-slate-500">(${c.src_country})</span></td>
+        <td class="py-2 text-blue-400">${c.dst_ip} <span class="text-slate-500">(${c.dst_country})</span></td>
+        <td class="py-2 text-slate-200"><span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px]">${c.application}</span></td>
+        <td class="py-2 text-slate-400">${c.protocol === 6 ? 'TCP' : (c.protocol === 17 ? 'UDP' : 'ICMP')} / ${c.dst_port}</td>
+        <td class="py-2"><span class="text-[10px] px-1.5 py-0.5 rounded ${c.flow_direction.includes('East-West') ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}">${c.flow_direction}</span></td>
+        <td class="py-2 text-right text-emerald-400 font-semibold">${c.mbps} Mbps</td>
+        <td class="py-2 text-right text-slate-400">${(c.packets || 0).toLocaleString()}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="py-3 text-center text-slate-500">No data</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load top talkers:', e);
+  }
+}
+
+async function loadPeering() {
+  try {
+    const [matrixRes, summaryRes] = await Promise.all([
+      fetch('/api/v1/peering/matrix?limit=15&minutes=60'),
+      fetch('/api/v1/peering/summary?minutes=60')
+    ]);
+
+    const matrix = await matrixRes.json();
+    const summary = await summaryRes.json();
+
+    updatePeeringRatioChart(summary.categories || []);
+
+    const tbody = document.getElementById('table-asn-matrix');
+    tbody.innerHTML = matrix.map(m => {
+      const isCandidate = m.peering_candidate;
+      return `
+        <tr class="hover:bg-slate-800/40 font-mono">
+          <td class="py-2.5 text-slate-300">AS${m.src_as} <span class="text-slate-500">(${m.src_as_name})</span></td>
+          <td class="py-2.5 text-cyan-400 font-semibold">AS${m.dst_as} <span class="text-slate-400">(${m.dst_as_name})</span></td>
+          <td class="py-2.5"><span class="px-2 py-0.5 rounded text-[10px] ${m.dst_as_category.includes('Peering') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}">${m.dst_as_category}</span></td>
+          <td class="py-2.5 text-right font-semibold">${m.mbps} Mbps</td>
+          <td class="py-2.5 text-right text-slate-300">$${(m.monthly_transit_cost_usd || 0).toLocaleString()} /mo</td>
+          <td class="py-2.5 text-center">
+            ${isCandidate ? `
+              <span class="px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold">
+                <i class="fa-solid fa-handshake mr-1"></i> Peer via IXP
+              </span>
+            ` : `
+              <span class="text-slate-500 text-[11px]">Transit Required</span>
+            `}
+          </td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="6" class="py-4 text-center text-slate-500">No ASN traffic recorded</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load peering:', e);
+  }
+}
+
+async function loadInterfaces() {
+  try {
+    const [utilRes, siteRes] = await Promise.all([
+      fetch('/api/v1/interfaces/utilization?limit=30&minutes=15'),
+      fetch('/api/v1/site-to-site?minutes=60')
+    ]);
+
+    const utils = await utilRes.json();
+    const sites = await siteRes.json();
+
+    updateSiteToSiteChart(sites);
+
+    const tbody = document.getElementById('table-interface-util');
+    tbody.innerHTML = utils.map(u => {
+      const pct = u.utilization_pct;
+      const isSaturated = u.status === 'SATURATED';
+      const isWarning = u.status === 'WARNING';
+      const barColor = isSaturated ? 'bg-red-500' : (isWarning ? 'bg-amber-500' : 'bg-cyan-500');
+      const badgeClass = isSaturated ? 'bg-red-500/20 text-red-400 border-red-500/30' : (isWarning ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30');
+
+      return `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2.5 font-semibold text-slate-200">${u.device_name}</td>
+          <td class="py-2.5"><span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300">${u.vendor}</span></td>
+          <td class="py-2.5 text-slate-400">${u.site}</td>
+          <td class="py-2.5 text-cyan-400">${u.if_name}</td>
+          <td class="py-2.5 text-slate-400 text-[11px] truncate max-w-xs">${u.if_alias}</td>
+          <td class="py-2.5 font-bold text-slate-300">${u.speed_readable}</td>
+          <td class="py-2.5 text-right font-semibold">${u.current_in_mbps} Mbps</td>
+          <td class="py-2.5">
+            <div class="flex items-center space-x-2">
+              <div class="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div class="${barColor} h-2 rounded-full transition-all" style="width: ${Math.min(100, pct)}%"></div>
+              </div>
+              <span class="text-[11px] font-bold w-12 text-right">${pct}%</span>
+            </div>
+          </td>
+          <td class="py-2.5 text-center">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}">${u.status}</span>
+          </td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="9" class="py-4 text-center text-slate-500">No interface flows</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load interfaces:', e);
+  }
+}
+
+async function loadGeoMap() {
+  if (!leafletMap) {
+    leafletMap = L.map('leaflet-map').setView([25, 10], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(leafletMap);
+    leafletFlowLayer = L.layerGroup().addTo(leafletMap);
+  }
+
+  try {
+    const res = await fetch('/api/v1/geomap?minutes=30');
+    const flows = await res.json();
+    leafletFlowLayer.clearLayers();
+
+    flows.forEach(f => {
+      if (f.src_lat && f.src_lon && f.dst_lat && f.dst_lon) {
+        // Source Marker
+        L.circleMarker([f.src_lat, f.src_lon], {
+          radius: 5,
+          color: '#06b6d4',
+          fillColor: '#06b6d4',
+          fillOpacity: 0.8
+        }).bindPopup(`<b>${f.src_city}, ${f.src_country}</b><br/>Transmitted: ${formatBytes(f.bytes)}`).addTo(leafletFlowLayer);
+
+        // Destination Marker
+        L.circleMarker([f.dst_lat, f.dst_lon], {
+          radius: 6,
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.8
+        }).bindPopup(`<b>${f.dst_city}, ${f.dst_country}</b>`).addTo(leafletFlowLayer);
+
+        // Flow Line Arc
+        L.polyline([[f.src_lat, f.src_lon], [f.dst_lat, f.dst_lon]], {
+          color: '#06b6d4',
+          weight: 1.5,
+          opacity: 0.5,
+          dashArray: '5, 8'
+        }).addTo(leafletFlowLayer);
+      }
+    });
+
+    leafletMap.invalidateSize();
+  } catch (e) {
+    console.error('Failed to load geomap:', e);
+  }
+}
+
+async function loadSecurity() {
+  try {
+    const [ddosRes, anomRes] = await Promise.all([
+      fetch('/api/v1/security/ddos?window_minutes=15'),
+      fetch('/api/v1/security/anomalies?window_minutes=15')
+    ]);
+
+    const attacks = await ddosRes.json();
+    const anomalies = await anomRes.json();
+
+    document.getElementById('sec-ddos-count').innerText = attacks.length;
+    const lateralCount = anomalies.filter(a => a.category.includes('Lateral')).length;
+    const scanCount = anomalies.filter(a => a.category.includes('Scan')).length;
+    document.getElementById('sec-lateral-count').innerText = lateralCount;
+    document.getElementById('sec-scan-count').innerText = scanCount;
+
+    // Active Attack Cards
+    const cardsEl = document.getElementById('ddos-attack-cards');
+    if (attacks.length === 0) {
+      cardsEl.innerHTML = `
+        <div class="p-6 text-center text-slate-500 font-mono text-xs rounded-lg border border-slate-800 bg-slate-900/30">
+          <i class="fa-solid fa-circle-check text-emerald-400 text-lg mb-2"></i>
+          <div>NO VOLUMETRIC ATTACKS DETECTED</div>
+          <div class="text-[11px] text-slate-600 mt-1">Normal baseline traffic thresholds intact</div>
+        </div>
+      `;
+    } else {
+      cardsEl.innerHTML = attacks.map(att => `
+        <div class="p-4 rounded-xl border border-red-500/40 bg-red-950/20 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center space-x-2">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/30 text-red-400 border border-red-500/50">${att.severity}</span>
+              <span class="text-sm font-bold text-white">${att.attack_type}</span>
+              <span class="text-xs text-slate-400">Target: <strong class="text-cyan-400 font-mono">${att.target_ip}</strong></span>
+            </div>
+            <p class="text-xs text-slate-300 font-mono">${att.description}</p>
+            <div class="text-[11px] text-slate-400">
+              Metric: <strong class="text-red-400">${att.metric_value} ${att.unit}</strong> (Threshold: ${att.threshold} ${att.unit})
+            </div>
+          </div>
+          <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+            <button onclick="deployMitigation('${att.alert_id}', 'BGP_FLOWSPEC')" class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-red-600/30 transition">
+              <i class="fa-solid fa-shield"></i>
+              <span>Deploy BGP Flowspec</span>
+            </button>
+            <button onclick="deployMitigation('${att.alert_id}', 'RTBH')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition">
+              <span>Trigger RTBH Blackhole</span>
+            </button>
+          </div>
+        </div>
+        ${att.bgp_flowspec_rule ? `
+          <div class="bg-black/40 border border-slate-800 p-3 rounded-lg text-[11px] font-mono text-emerald-400 overflow-x-auto">
+            <div class="text-slate-500 text-[10px] mb-1">// Generated RFC 5575 BGP Flowspec Filter:</div>
+            <pre>${att.bgp_flowspec_rule}</pre>
+          </div>
+        ` : ''}
+      `).join('');
+    }
+
+    // Anomalies Table
+    const tbody = document.getElementById('table-security-anomalies');
+    tbody.innerHTML = anomalies.map(a => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2.5 text-slate-400">${new Date(a.timestamp * 1000).toLocaleTimeString()}</td>
+        <td class="py-2.5 text-slate-200"><span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700">${a.category}</span></td>
+        <td class="py-2.5"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${a.severity === 'HIGH' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}">${a.severity}</span></td>
+        <td class="py-2.5 text-cyan-400 font-semibold">${a.source_ip}</td>
+        <td class="py-2.5 text-blue-400 font-semibold">${a.target_ip}</td>
+        <td class="py-2.5 text-slate-300 text-[11px]">${a.description}</td>
+        <td class="py-2.5 text-center"><span class="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-bold">DETECTED</span></td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="py-4 text-center text-slate-500">No anomalies detected</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load security:', e);
+  }
+}
+
+async function deployMitigation(alertId, action) {
+  try {
+    const res = await fetch(`/api/v1/security/mitigate?alert_id=${alertId}&action=${action}`, { method: 'POST' });
+    const data = await res.json();
+    showToast(data.message, 'success');
+    refreshCurrentTab();
+  } catch (e) {
+    showToast('Mitigation dispatch failed', 'error');
+  }
+}
+
+// ================= CYBER THREAT & DDOS ATTACK SIMULATOR =================
+
+let currentAttackStatus = { active: false };
+
+async function pollAttackStatus() {
+  try {
+    const res = await fetch('/api/v1/simulate/attack/status');
+    const data = await res.json();
+    updateAttackStatusUI(data);
+  } catch (e) { }
+}
+
+function updateAttackStatusUI(status) {
+  currentAttackStatus = status || { active: false };
+  const isActive = !!currentAttackStatus.active;
+
+  // 1. Top Header button
+  const btnHeaderStart = document.getElementById('btn-header-attack');
+  const btnHeaderStop = document.getElementById('btn-header-stop-attack');
+  if (btnHeaderStart && btnHeaderStop) {
+    if (isActive) {
+      btnHeaderStart.classList.add('hidden');
+      btnHeaderStop.classList.remove('hidden');
+      btnHeaderStop.innerHTML = `<i class="fa-solid fa-circle-stop mr-1.5 animate-pulse"></i><span>Stop Attack (${Number(currentAttackStatus.current_mbps || 0).toLocaleString()} Mbps)</span>`;
+    } else {
+      btnHeaderStart.classList.remove('hidden');
+      btnHeaderStop.classList.add('hidden');
+    }
+  }
+
+  // 2. Security Tab Console Controls
+  const badgeSecStatus = document.getElementById('sec-attack-badge');
+  const btnStart = document.getElementById('btn-sec-start-attack');
+  const btnStop = document.getElementById('btn-sec-stop-attack');
+  const liveBanner = document.getElementById('sec-attack-live-banner');
+
+  if (badgeSecStatus) {
+    if (isActive) {
+      badgeSecStatus.className = "px-2.5 py-1 rounded bg-red-600/30 text-red-400 border border-red-500/50 text-xs font-mono font-bold flex items-center space-x-1.5 animate-pulse";
+      badgeSecStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500"></span><span>● ATTACK ACTIVE: ${currentAttackStatus.target_ip} (${currentAttackStatus.protocol})</span>`;
+    } else {
+      badgeSecStatus.className = "px-2.5 py-1 rounded bg-slate-800 text-slate-400 text-xs font-mono font-bold";
+      badgeSecStatus.innerText = "● SYSTEM IDLE";
+    }
+  }
+
+  if (btnStart) {
+    btnStart.disabled = isActive;
+    if (isActive) {
+      btnStart.className = "px-4 py-2 rounded-lg bg-slate-800 text-slate-500 cursor-not-allowed text-xs font-bold flex items-center space-x-1.5";
+    } else {
+      btnStart.className = "px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-red-600/30 transition cursor-pointer";
+    }
+  }
+
+  if (btnStop) {
+    btnStop.disabled = !isActive;
+    if (isActive) {
+      btnStop.className = "px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-amber-600/30 transition cursor-pointer";
+    } else {
+      btnStop.className = "px-4 py-2 rounded-lg bg-slate-800 text-slate-600 cursor-not-allowed text-xs font-bold flex items-center space-x-1.5 border border-slate-700/50";
+    }
+  }
+
+  // 3. Live metrics banner
+  if (liveBanner) {
+    if (isActive) {
+      liveBanner.classList.remove('hidden');
+      const elTarget = document.getElementById('live-atk-target');
+      if (elTarget) elTarget.innerText = currentAttackStatus.target_ip;
+      const elProto = document.getElementById('live-atk-proto');
+      if (elProto) elProto.innerText = `${currentAttackStatus.protocol} (Port ${currentAttackStatus.target_port})`;
+      const elRate = document.getElementById('live-atk-rate');
+      if (elRate) elRate.innerText = `${Number(currentAttackStatus.current_mbps || 0).toLocaleString()} Mbps`;
+      const elPps = document.getElementById('live-atk-pps');
+      if (elPps) elPps.innerText = `${(currentAttackStatus.current_pps || 0).toLocaleString()} PPS`;
+      const elPkts = document.getElementById('live-atk-pkts');
+      if (elPkts) elPkts.innerText = `${(currentAttackStatus.total_packets || 0).toLocaleString()}`;
+      const elTime = document.getElementById('live-atk-time');
+      if (elTime) elTime.innerText = formatAttackTimer(currentAttackStatus.elapsed_seconds || 0);
+    } else {
+      liveBanner.classList.add('hidden');
+    }
+  }
+
+  // 4. Modal controls (if open)
+  const modalBtnStart = document.getElementById('btn-modal-start-attack');
+  const modalBtnStop = document.getElementById('btn-modal-stop-attack');
+  if (modalBtnStart && modalBtnStop) {
+    modalBtnStart.disabled = isActive;
+    modalBtnStop.disabled = !isActive;
+    if (isActive) {
+      modalBtnStart.className = "px-4 py-2 rounded-lg bg-slate-800 text-slate-500 cursor-not-allowed text-xs font-bold";
+      modalBtnStop.className = "px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg transition";
+    } else {
+      modalBtnStart.className = "px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-600/30 transition";
+      modalBtnStop.className = "px-4 py-2 rounded-lg bg-slate-800 text-slate-600 cursor-not-allowed text-xs font-bold";
+    }
+  }
+}
+
+function formatAttackTimer(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0');
+  const s = Math.floor(sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function setAttackTarget(ip, label) {
+  const input = document.getElementById('atk-target-ip');
+  if (input) input.value = ip;
+  const modalInput = document.getElementById('modal-atk-target-ip');
+  if (modalInput) modalInput.value = ip;
+  showToast(`Selected target victim: ${ip} (${label})`, 'info');
+}
+
+function onAttackProtocolChange(proto) {
+  const portInput = document.getElementById('atk-target-port');
+  const modalPortInput = document.getElementById('modal-atk-target-port');
+  let defaultPort = 443;
+  if (proto === 'UDP_DNS') defaultPort = 53;
+  else if (proto === 'UDP_NTP') defaultPort = 123;
+  else if (proto === 'HTTP') defaultPort = 80;
+  else if (proto === 'LATERAL') defaultPort = 445;
+  else if (proto === 'ICMP') defaultPort = 0;
+
+  if (portInput) portInput.value = defaultPort;
+  if (modalPortInput) modalPortInput.value = defaultPort;
+}
+
+async function startSimulatedAttack(fromModal = false) {
+  const targetIp = (fromModal ? document.getElementById('modal-atk-target-ip')?.value : document.getElementById('atk-target-ip')?.value) || '10.0.1.50';
+  const protocol = (fromModal ? document.getElementById('modal-atk-protocol')?.value : document.getElementById('atk-protocol')?.value) || 'TCP_SYN';
+  const targetPort = (fromModal ? document.getElementById('modal-atk-target-port')?.value : document.getElementById('atk-target-port')?.value) || 443;
+  const intensity = (fromModal ? document.getElementById('modal-atk-intensity')?.value : document.getElementById('atk-intensity')?.value) || 'high';
+
+  try {
+    const res = await fetch('/api/v1/simulate/attack/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_ip: targetIp,
+        protocol: protocol,
+        target_port: parseInt(targetPort),
+        intensity: intensity
+      })
+    });
+    const data = await res.json();
+    updateAttackStatusUI(data.campaign);
+    showToast(data.message, 'warning');
+    if (fromModal) closeAttackConsoleModal();
+    switchTab('security');
+  } catch (e) {
+    showToast('Failed to start attack campaign', 'error');
+  }
+}
+
+async function stopSimulatedAttack() {
+  try {
+    const res = await fetch('/api/v1/simulate/attack/stop', { method: 'POST' });
+    const data = await res.json();
+    updateAttackStatusUI(data.campaign);
+    showToast(data.message, 'success');
+    if (currentTab === 'security') {
+      setTimeout(loadSecurity, 600);
+    }
+  } catch (e) {
+    showToast('Failed to stop attack campaign', 'error');
+  }
+}
+
+function openAttackConsoleModal() {
+  const modal = document.getElementById('modal-attack-console');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeAttackConsoleModal() {
+  const modal = document.getElementById('modal-attack-console');
+  if (modal) modal.classList.add('hidden');
+}
+
+// Legacy alias
+function triggerSimulatedAttack() {
+  openAttackConsoleModal();
+}
+
+async function loadQoS() {
+  try {
+    const [breakdownRes, complianceRes] = await Promise.all([
+      fetch('/api/v1/qos/breakdown?minutes=60'),
+      fetch('/api/v1/qos/compliance?minutes=60')
+    ]);
+
+    const breakdown = await breakdownRes.json();
+    const compliance = await complianceRes.json();
+
+    updateQosChart(breakdown);
+
+    const badge = document.getElementById('badge-qos-status');
+    if (compliance.compliant) {
+      badge.className = "px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-xs font-semibold border border-emerald-500/20";
+      badge.innerText = "All CBQoS Policies Compliant";
+    } else {
+      badge.className = "px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 text-xs font-semibold border border-amber-500/30";
+      badge.innerText = "Voice/BGP Tagging Violations Detected";
+    }
+
+    const tbody = document.getElementById('table-qos-breakdown');
+    tbody.innerHTML = breakdown.map(q => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2.5 text-cyan-400 font-semibold">${q.dscp_name} (DSCP ${q.dscp})</td>
+        <td class="py-2.5 text-slate-300">${q.qos_class}</td>
+        <td class="py-2.5 text-slate-400">${q.dscp === 46 ? 'Mission Critical Voice (EF)' : (q.dscp === 34 ? 'Interactive Video (AF41)' : 'General Traffic')}</td>
+        <td class="py-2.5 text-right font-bold text-slate-200">${q.mbps} Mbps</td>
+        <td class="py-2.5 text-right text-emerald-400 font-semibold">${q.percentage}%</td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" class="py-4 text-center text-slate-500">No QoS data</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load QoS:', e);
+  }
+}
+
+async function loadCapacityForecast() {
+  const devSelect = document.getElementById('select-capacity-device');
+  const devId = devSelect ? devSelect.value : 'dev-0001';
+
+  try {
+    const res = await fetch(`/api/v1/capacity/forecast?device_id=${devId}&in_ifindex=1`);
+    const forecast = await res.json();
+
+    document.getElementById('cap-speed').innerText = `${forecast.speed_mbps / 1000} Gbps`;
+    document.getElementById('cap-current-peak').innerText = `${(forecast.current_peak_mbps / 1000).toFixed(2)} Gbps`;
+    document.getElementById('cap-days-85').innerText = `${forecast.estimated_days_to_85_pct} Days`;
+    document.getElementById('cap-exhaust-date').innerText = forecast.exhaustion_forecast_date;
+
+    updateCapacityChart(forecast);
+  } catch (e) {
+    console.error('Failed to load capacity:', e);
+  }
+}
+
+async function loadBilling() {
+  try {
+    const [p95Res, cbRes] = await Promise.all([
+      fetch('/api/v1/billing/p95?days=30'),
+      fetch('/api/v1/billing/chargebacks?days=30')
+    ]);
+
+    const p95 = await p95Res.json();
+    const chargebacks = await cbRes.json();
+
+    document.getElementById('bill-p95').innerText = `${(p95.p95_mbps / 1000).toFixed(2)} Gbps`;
+    document.getElementById('bill-total-tb').innerText = `${p95.total_transfer_tb} TB`;
+    document.getElementById('bill-invoice-usd').innerText = `$${(p95.estimated_invoice_usd || 0).toLocaleString()}`;
+
+    const tbody = document.getElementById('table-chargebacks');
+    tbody.innerHTML = chargebacks.map(cb => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2.5 text-cyan-400 font-semibold">${cb.tenant_or_group}</td>
+        <td class="py-2.5 text-right text-slate-300 font-bold">${cb.transfer_tb} TB</td>
+        <td class="py-2.5 text-right text-slate-400">$${cb.rate_per_tb_usd} / TB</td>
+        <td class="py-2.5 text-right text-emerald-400 font-bold">$${(cb.chargeback_cost_usd || 0).toLocaleString()}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="4" class="py-4 text-center text-slate-500">No chargebacks</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load billing:', e);
+  }
+}
+
+async function loadDevicesList() {
+  const vendorFilter = document.getElementById('filter-device-vendor').value;
+  try {
+    const url = `/api/v1/devices?limit=150${vendorFilter ? '&vendor=' + vendorFilter : ''}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const tbody = document.getElementById('table-devices-list');
+    tbody.innerHTML = data.devices.map(d => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2 text-cyan-400">${d.device_id}</td>
+        <td class="py-2 font-semibold text-slate-200">${d.hostname}</td>
+        <td class="py-2 text-slate-300">${d.ip}</td>
+        <td class="py-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${getVendorBadgeClass(d.vendor)}">${d.vendor}</span></td>
+        <td class="py-2 text-slate-400">${d.model}</td>
+        <td class="py-2 text-slate-300">${d.role}</td>
+        <td class="py-2 text-slate-400">${d.site}</td>
+        <td class="py-2 text-slate-300 font-semibold">${d.flow_protocol}</td>
+        <td class="py-2 text-slate-400">1 : ${d.sampling_rate}</td>
+        <td class="py-2 text-center"><span class="w-2 h-2 inline-block rounded-full bg-emerald-500 mr-1"></span> ONLINE</td>
+      </tr>
+    `).join('') || '<tr><td colspan="10" class="py-4 text-center text-slate-500">No devices found</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load devices:', e);
+  }
+}
+
+function getVendorBadgeClass(vendor) {
+  if (vendor === 'Auto-Discovered') return 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold';
+  if (vendor === 'Cisco') return 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+  if (vendor === 'Juniper') return 'bg-purple-500/20 text-purple-400 border border-purple-500/30';
+  if (vendor === 'Huawei') return 'bg-red-500/20 text-red-400 border border-red-500/30';
+  if (vendor === 'Nokia') return 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30';
+  if (vendor === 'ZTE') return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+  if (vendor === 'MikroTik') return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+  return 'bg-slate-800 text-slate-400';
+}
+
+async function queryRawFlows() {
+  const src = document.getElementById('filter-src-ip').value;
+  const dst = document.getElementById('filter-dst-ip').value;
+  const proto = document.getElementById('filter-proto').value;
+  const dscp = document.getElementById('filter-dscp').value;
+
+  const params = new URLSearchParams();
+  params.set('limit', '50');
+  if (src) params.set('src_ip', src);
+  if (dst) params.set('dst_ip', dst);
+  if (proto) params.set('protocol', proto);
+  if (dscp) params.set('dscp', dscp);
+
+  try {
+    const res = await fetch(`/api/v1/raw-flows?${params.toString()}`);
+    const flows = await res.json();
+
+    const tbody = document.getElementById('table-raw-flows');
+    tbody.innerHTML = flows.map(f => `
+      <tr class="hover:bg-slate-800/40">
+        <td class="py-2 text-slate-400">${f.timestamp ? f.timestamp.split('T')[1].slice(0, 8) : '--'}</td>
+        <td class="py-2 text-slate-300">${f.device_name}</td>
+        <td class="py-2 text-cyan-400 font-semibold">${f.src_ip}</td>
+        <td class="py-2 text-slate-400">${f.src_as_name || 'AS'}</td>
+        <td class="py-2 text-blue-400 font-semibold">${f.dst_ip}</td>
+        <td class="py-2 text-slate-400">${f.dst_as_name || 'AS'}</td>
+        <td class="py-2 text-slate-300">${f.protocol === 6 ? 'TCP' : (f.protocol === 17 ? 'UDP' : 'ICMP')}</td>
+        <td class="py-2 text-slate-400">${f.dst_port}</td>
+        <td class="py-2 text-slate-200"><span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px]">${f.application}</span></td>
+        <td class="py-2 text-slate-400">${f.dscp_name}</td>
+        <td class="py-2 text-right font-mono">${(f.packets || 0).toLocaleString()}</td>
+        <td class="py-2 text-right font-mono text-emerald-400">${formatBytes(f.bytes || 0)}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="12" class="py-4 text-center text-slate-500">No records matching query</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to query raw flows:', e);
+  }
+}
+
+// ================= TRAFFIC PATTERN STUDIO =================
+
+let patternOptionsLoaded = false;
+let currentPatternViewMode = 'sankey';
+let currentBarCategory = 'providers';
+let activePatternMultiviewData = null;
+let currentPatternPreset = 'CDN_ENTRY_EXIT';
+
+async function loadPatternStudio() {
+  if (!patternOptionsLoaded) {
+    try {
+      const res = await fetch('/api/v1/pattern/options');
+      const opts = await res.json();
+      
+      const devSelect = document.getElementById('pat-device');
+      if (devSelect && opts.devices) {
+        devSelect.innerHTML = '<option value="">All Exporter Devices (1,000+)</option>' + 
+          opts.devices.map(d => `<option value="${d.device_id}">${d.device_name} (${d.vendor} - ${d.site})</option>`).join('');
+      }
+      patternOptionsLoaded = true;
+    } catch (e) {
+      console.error('Failed to load pattern options:', e);
+    }
+  }
+
+  // Execute initial pattern query
+  executePatternQuery();
+}
+
+function switchGraphView(viewMode) {
+  currentPatternViewMode = viewMode;
+  
+  const viewBtns = ['sankey', 'bar', 'table', 'area', 'treemap', 'sunburst'];
+  viewBtns.forEach(m => {
+    const btn = document.getElementById(`btn-view-${m}`);
+    const container = document.getElementById(`view-${m}-container`);
+    if (btn) {
+      if (m === viewMode) {
+        btn.className = "px-3 py-1.5 rounded-lg bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 text-xs font-bold flex items-center space-x-1.5 shadow-sm shadow-cyan-500/20";
+      } else {
+        btn.className = "px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-medium flex items-center space-x-1.5 transition";
+      }
+    }
+    if (container) {
+      if (m === viewMode) {
+        container.classList.remove('hidden');
+      } else {
+        container.classList.add('hidden');
+      }
+    }
+  });
+
+  renderActiveGraphView();
+}
+
+function renderActiveGraphView() {
+  if (!activePatternMultiviewData) return;
+
+  if (currentPatternViewMode === 'sankey') {
+    if (activePatternMultiviewData.sankey) {
+      renderSankeyChart(
+        activePatternMultiviewData.sankey.nodes,
+        activePatternMultiviewData.sankey.links,
+        activePatternMultiviewData.view_name
+      );
+    }
+  } else if (currentPatternViewMode === 'bar') {
+    if (activePatternMultiviewData.bars) {
+      renderRankedBarChart(activePatternMultiviewData.bars, currentBarCategory);
+    }
+  } else if (currentPatternViewMode === 'table') {
+    renderPatternTable(activePatternMultiviewData.table || []);
+  } else if (currentPatternViewMode === 'area') {
+    if (activePatternMultiviewData.timeseries) {
+      renderAreaTrendChart(activePatternMultiviewData.timeseries);
+    }
+  } else if (currentPatternViewMode === 'treemap') {
+    if (activePatternMultiviewData.treemap) {
+      renderTreemapChart(activePatternMultiviewData.treemap);
+    }
+  } else if (currentPatternViewMode === 'sunburst') {
+    if (activePatternMultiviewData.sunburst) {
+      renderSunburstChart(activePatternMultiviewData.sunburst);
+    }
+  }
+
+  setTimeout(() => {
+    if (currentPatternViewMode === 'sankey' && chartSankey) chartSankey.resize();
+    else if (currentPatternViewMode === 'bar' && chartRankedBar) chartRankedBar.resize();
+    else if (currentPatternViewMode === 'area' && chartPatternTimeseries) chartPatternTimeseries.resize();
+    else if (currentPatternViewMode === 'treemap' && chartTreemap) chartTreemap.resize();
+    else if (currentPatternViewMode === 'sunburst' && chartSunburst) chartSunburst.resize();
+  }, 60);
+}
+
+function switchBarSubcategory(subcat) {
+  currentBarCategory = subcat;
+  ['providers', 'prefixes', 'interconnects'].forEach(c => {
+    const el = document.getElementById(`btn-bar-${c}`);
+    if (el) {
+      if (c === subcat) {
+        el.className = "px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold";
+      } else {
+        el.className = "px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-200 text-xs";
+      }
+    }
+  });
+  if (activePatternMultiviewData && activePatternMultiviewData.bars) {
+    renderRankedBarChart(activePatternMultiviewData.bars, currentBarCategory);
+  }
+}
+
+function renderPatternTable(rows) {
+  const tbody = document.getElementById('view-table-body');
+  if (!tbody) return;
+
+  tbody.innerHTML = rows.map(r => `
+    <tr class="hover:bg-slate-800/40 transition">
+      <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${r.rank}</td>
+      <td class="py-2.5 px-3 font-semibold text-cyan-400 font-mono">${r.src_entity}</td>
+      <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${getInterconnectBadge(r.interconnect)}">${r.interconnect}</span></td>
+      <td class="py-2.5 px-3 text-slate-300 font-mono font-semibold">${r.ingress_site}</td>
+      <td class="py-2.5 px-3 text-slate-400 font-mono">${r.egress_site}</td>
+      <td class="py-2.5 px-3 text-purple-400 font-mono font-semibold">${r.dst_prefix}</td>
+      <td class="py-2.5 px-3 text-slate-300">${r.application}</td>
+      <td class="py-2.5 px-3 text-right font-mono font-bold text-cyan-400">${Number(r.mbps).toLocaleString()} Mbps</td>
+      <td class="py-2.5 px-3 text-right font-mono text-emerald-400 font-bold">${r.total_gb} GB</td>
+      <td class="py-2.5 px-3 text-right font-mono text-slate-400">${(r.pps || 0).toLocaleString()}</td>
+      <td class="py-2.5 px-3">
+        <div class="flex items-center space-x-2">
+          <div class="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div class="bg-gradient-to-r from-cyan-500 to-blue-500 h-1.5 rounded-full" style="width: ${Math.min(100, r.share_pct)}%"></div>
+          </div>
+          <span class="text-[11px] font-mono text-slate-300 w-10 text-right">${r.share_pct}%</span>
+        </div>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="11" class="py-6 text-center text-slate-500">No flow paths found</td></tr>';
+}
+
+function getInterconnectBadge(type) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('free')) return 'bg-teal-500/20 text-teal-300 border border-teal-500/30';
+  if (t.includes('paid')) return 'bg-orange-500/20 text-orange-300 border border-orange-500/30';
+  if (t.includes('transit')) return 'bg-slate-700 text-slate-300 border border-slate-600';
+  if (t.includes('customer')) return 'bg-sky-500/20 text-sky-300 border border-sky-500/30';
+  return 'bg-slate-800 text-slate-400';
+}
+
+function filterPatternTable(term) {
+  if (!activePatternMultiviewData || !activePatternMultiviewData.table) return;
+  const q = term.toLowerCase().trim();
+  if (!q) {
+    renderPatternTable(activePatternMultiviewData.table);
+    return;
+  }
+  const filtered = activePatternMultiviewData.table.filter(r => 
+    String(r.src_entity).toLowerCase().includes(q) ||
+    String(r.interconnect).toLowerCase().includes(q) ||
+    String(r.ingress_site).toLowerCase().includes(q) ||
+    String(r.egress_site).toLowerCase().includes(q) ||
+    String(r.dst_prefix).toLowerCase().includes(q) ||
+    String(r.application).toLowerCase().includes(q)
+  );
+  renderPatternTable(filtered);
+}
+
+function exportPatternDataToCSV() {
+  if (!activePatternMultiviewData || !activePatternMultiviewData.table) {
+    showToast('No active dataset to export', 'error');
+    return;
+  }
+  const rows = activePatternMultiviewData.table;
+  const headers = ["Rank", "Source Entity", "Interconnect", "Ingress Site", "Egress Site", "Destination Prefix", "Application", "Throughput (Mbps)", "Total Data (GB)", "Packets (PPS)", "Share (%)"];
+  const csvContent = [
+    headers.join(","),
+    ...rows.map(r => `"${r.rank}","${r.src_entity}","${r.interconnect}","${r.ingress_site}","${r.egress_site}","${r.dst_prefix}","${r.application}",${r.mbps},${r.total_gb},${r.pps},${r.share_pct}`)
+  ].join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `aegisflow_traffic_flow_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('Exported CSV dataset successfully', 'success');
+}
+
+function onPresetSelected(presetId) {
+  currentPatternPreset = presetId;
+  const badge = document.getElementById('active-view-badge');
+  if (presetId === 'CDN_ENTRY_EXIT') {
+    if (badge) badge.innerText = "★ Saved View: CDN Traffic Network Entry & Exit";
+    resetPatternFilterFields();
+  } else {
+    if (badge) badge.innerText = "Dynamic Multi-Condition Filter Flow";
+  }
+  executePatternQuery();
+}
+
+function jumpToCdnSankey() {
+  switchTab('pattern');
+  const sel = document.getElementById('select-pattern-preset');
+  if (sel) sel.value = 'CDN_ENTRY_EXIT';
+  currentPatternPreset = 'CDN_ENTRY_EXIT';
+  const badge = document.getElementById('active-view-badge');
+  if (badge) badge.innerText = "★ Saved View: CDN Traffic Network Entry & Exit";
+  switchGraphView('sankey');
+  
+  // Highlight sidebar item
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.className = "nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60";
+  });
+  const navBtn = document.getElementById('nav-cdn-sankey');
+  if (navBtn) {
+    navBtn.className = "nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-white bg-cyan-600/20 border border-cyan-500/30";
+  }
+
+  executePatternQuery();
+}
+
+async function executePatternQuery() {
+  const reqBody = {
+    src_as: document.getElementById('pat-src-as').value ? parseInt(document.getElementById('pat-src-as').value) : null,
+    dst_as: document.getElementById('pat-dst-as').value ? parseInt(document.getElementById('pat-dst-as').value) : null,
+    src_country: document.getElementById('pat-src-country').value || null,
+    dst_country: document.getElementById('pat-dst-country').value || null,
+    src_prefix: document.getElementById('pat-src-prefix').value || null,
+    dst_prefix: document.getElementById('pat-dst-prefix').value || null,
+    in_if_name: document.getElementById('pat-in-if').value || null,
+    device_id: document.getElementById('pat-device').value || null,
+    application: document.getElementById('pat-app').value || null,
+    dscp: document.getElementById('pat-dscp').value !== "" ? parseInt(document.getElementById('pat-dscp').value) : null,
+    flow_direction: document.getElementById('pat-direction').value || null,
+    time_window_minutes: parseInt(document.getElementById('pat-time').value || 60),
+    preset: currentPatternPreset
+  };
+
+  try {
+    const [queryRes, multiRes] = await Promise.all([
+      fetch('/api/v1/pattern/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reqBody)
+      }),
+      fetch('/api/v1/pattern/multiview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reqBody)
+      })
+    ]);
+
+    const data = await queryRes.json();
+    const multiview = await multiRes.json();
+    activePatternMultiviewData = multiview;
+
+    // Update Pattern KPIs
+    const sm = multiview.summary || data.summary || {};
+    document.getElementById('pat-kpi-mbps').innerText = `${Number(sm.total_mbps || sm.avg_mbps || 0).toLocaleString()} Mbps`;
+    document.getElementById('pat-kpi-bytes').innerText = formatBytes((sm.total_gb ? sm.total_gb * 1024 * 1024 * 1024 : sm.total_bytes) || 0);
+    document.getElementById('pat-kpi-flows').innerText = (sm.total_flows || sm.flow_count || 0).toLocaleString();
+    document.getElementById('pat-kpi-endpoints').innerText = sm.top_talker ? sm.top_talker : `${sm.unique_sources || 0} Src / ${sm.unique_destinations || 0} Dst`;
+
+    // Render Active Graph View (Sankey, Bar, Table, Area, Treemap, Sunburst)
+    renderActiveGraphView();
+
+    // Update Matched ASNs
+    const asnTbody = document.getElementById('table-pattern-asns');
+    if (asnTbody) {
+      asnTbody.innerHTML = (data.top_asns || []).map(a => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 text-slate-300">AS${a.src_as} (${a.src_as_name})</td>
+          <td class="py-2 text-cyan-400 font-bold">AS${a.dst_as} (${a.dst_as_name})</td>
+          <td class="py-2 text-right text-emerald-400 font-bold">${a.mbps} Mbps</td>
+        </tr>
+      `).join('') || '<tr><td colspan="3" class="py-3 text-center text-slate-500">No matching ASNs in filter</td></tr>';
+    }
+
+    // Update Matched Interfaces
+    const ifTbody = document.getElementById('table-pattern-interfaces');
+    if (ifTbody) {
+      ifTbody.innerHTML = (data.top_interfaces || []).map(i => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 text-slate-200">${i.device_name}</td>
+          <td class="py-2 text-cyan-400 font-bold">${i.in_if_name || 'N/A'}</td>
+          <td class="py-2 text-right text-emerald-400 font-bold">${i.mbps} Mbps</td>
+        </tr>
+      `).join('') || '<tr><td colspan="3" class="py-3 text-center text-slate-500">No matching interfaces in filter</td></tr>';
+    }
+
+    // Update Conversations
+    const convTbody = document.getElementById('table-pattern-conversations');
+    if (convTbody) {
+      convTbody.innerHTML = (data.top_conversations || []).map(c => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 text-cyan-400 font-bold">${c.src_ip} <span class="text-slate-400 text-[10px]">(${c.src_country} · ${c.src_as_name})</span></td>
+          <td class="py-2 text-blue-400 font-bold">${c.dst_ip} <span class="text-slate-400 text-[10px]">(${c.dst_country} · ${c.dst_as_name})</span></td>
+          <td class="py-2 text-slate-300"><span class="px-2 py-0.5 rounded bg-slate-800 text-[10px] border border-slate-700">${c.application}</span></td>
+          <td class="py-2 text-slate-400">${c.protocol === 6 ? 'TCP' : 'UDP'}/${c.dst_port}</td>
+          <td class="py-2"><span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${c.flow_direction}</span></td>
+          <td class="py-2 text-right text-emerald-400 font-bold">${c.mbps} Mbps</td>
+        </tr>
+      `).join('') || '<tr><td colspan="6" class="py-4 text-center text-slate-500">No matching flows for current criteria</td></tr>';
+    }
+
+  } catch (e) {
+    console.error('Pattern query failed:', e);
+    showToast('Failed to execute pattern query', 'error');
+  }
+}
+
+function resetPatternFilterFields() {
+  document.getElementById('pat-src-as').value = '';
+  document.getElementById('pat-dst-as').value = '';
+  document.getElementById('pat-src-country').value = '';
+  document.getElementById('pat-dst-country').value = '';
+  document.getElementById('pat-src-prefix').value = '';
+  document.getElementById('pat-dst-prefix').value = '';
+  document.getElementById('pat-in-if').value = '';
+  document.getElementById('pat-device').value = '';
+  document.getElementById('pat-app').value = '';
+  document.getElementById('pat-dscp').value = '';
+  document.getElementById('pat-direction').value = '';
+  document.getElementById('pat-time').value = '60';
+}
+
+function resetPatternFilters() {
+  resetPatternFilterFields();
+  currentPatternPreset = 'DYNAMIC';
+  const sel = document.getElementById('select-pattern-preset');
+  if (sel) sel.value = 'DYNAMIC';
+  const badge = document.getElementById('active-view-badge');
+  if (badge) badge.innerText = "Dynamic Multi-Condition Filter Flow";
+  executePatternQuery();
+}
+
+function openCreateReportModalWithCurrentFilters() {
+  document.getElementById('rep-form-src-as').value = document.getElementById('pat-src-as').value;
+  document.getElementById('rep-form-dst-as').value = document.getElementById('pat-dst-as').value;
+  document.getElementById('rep-form-src-prefix').value = document.getElementById('pat-src-prefix').value;
+  document.getElementById('rep-form-dst-prefix').value = document.getElementById('pat-dst-prefix').value;
+  document.getElementById('rep-form-in-if').value = document.getElementById('pat-in-if').value;
+  document.getElementById('rep-form-country').value = document.getElementById('pat-dst-country').value;
+  document.getElementById('rep-form-window').value = document.getElementById('pat-time').value;
+
+  const desc = [];
+  if (document.getElementById('pat-src-as').value) desc.push(`Src AS${document.getElementById('pat-src-as').value}`);
+  if (document.getElementById('pat-dst-as').value) desc.push(`Dst AS${document.getElementById('pat-dst-as').value}`);
+  if (document.getElementById('pat-src-prefix').value) desc.push(`Prefix ${document.getElementById('pat-src-prefix').value}`);
+  if (document.getElementById('pat-in-if').value) desc.push(`Interface ${document.getElementById('pat-in-if').value}`);
+
+  document.getElementById('rep-form-name').value = desc.length ? `Automated ${desc.join(' to ')} Report` : "Custom Traffic Pattern Report";
+  document.getElementById('rep-form-desc').value = `Monitors bandwidth, top talkers, and saturation for: ${desc.join(', ')}`;
+
+  openCreateReportModal();
+}
+
+// ================= AUTOMATED REPORTS & NOTIFICATIONS =================
+
+async function loadReports() {
+  try {
+    const [reportsRes, historyRes] = await Promise.all([
+      fetch('/api/v1/reports'),
+      fetch('/api/v1/reports/history/all')
+    ]);
+    const reports = await reportsRes.json();
+    const history = await historyRes.json();
+
+    // Render Saved Report Cards
+    const grid = document.getElementById('grid-saved-reports');
+    if (!reports.length) {
+      grid.innerHTML = '<div class="p-6 text-center text-slate-500 font-mono text-xs col-span-3">No saved reports found. Click "+ Create New Report".</div>';
+    } else {
+      grid.innerHTML = reports.map(r => {
+        const conds = r.conditions || {};
+        const condBadges = Object.entries(conds)
+          .filter(([k, v]) => v)
+          .map(([k, v]) => `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-400 font-mono text-[10px] border border-slate-700">${k}: <b>${v}</b></span>`)
+          .join(' ');
+
+        const lastRunStr = r.last_run ? new Date(r.last_run * 1000).toLocaleString() : 'Never Executed';
+
+        return `
+          <div class="glass-card p-5 rounded-xl border border-slate-800 flex flex-col justify-between space-y-4 hover:border-slate-700 transition">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.schedule === 'DAILY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : (r.schedule === 'HOURLY' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-purple-500/20 text-purple-400 border border-purple-500/30')}">${r.schedule}</span>
+                <span class="text-[11px] text-slate-500 font-mono">${r.id}</span>
+              </div>
+              <h3 class="text-sm font-bold text-white mt-2">${r.name}</h3>
+              <p class="text-xs text-slate-400 mt-1">${r.description || 'Condition-based traffic report'}</p>
+              
+              <div class="mt-3 flex flex-wrap gap-1">
+                ${condBadges || '<span class="text-[10px] text-slate-500">Global traffic scope</span>'}
+              </div>
+
+              <div class="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-800/80 space-y-1">
+                <div><i class="fa-solid fa-clock text-slate-500 mr-1.5"></i>Last Run: <span class="text-slate-200 font-semibold">${lastRunStr}</span></div>
+                ${r.recipients && r.recipients.length ? `<div><i class="fa-solid fa-envelope text-slate-500 mr-1.5"></i>Recipients: <span class="text-slate-300">${r.recipients.join(', ')}</span></div>` : ''}
+                ${r.webhook_url ? `<div><i class="fa-solid fa-satellite-dish text-slate-500 mr-1.5"></i>Webhook Active</div>` : ''}
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+              <button onclick="runReportNow('${r.id}')" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1 shadow-md shadow-emerald-600/30">
+                <i class="fa-solid fa-play"></i>
+                <span>Run Now</span>
+              </button>
+              <div class="flex items-center space-x-1.5">
+                <a href="/api/v1/reports/${r.id}/export/html" target="_blank" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-semibold" title="View Executive HTML Report">
+                  <i class="fa-solid fa-eye"></i>
+                </a>
+                <a href="/api/v1/reports/${r.id}/export/csv" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold" title="Download CSV">
+                  <i class="fa-solid fa-file-csv"></i>
+                </a>
+                <button onclick="deleteReport('${r.id}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-red-900/40 text-red-400 text-xs font-semibold" title="Delete Report">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Render Execution History Table
+    const tbody = document.getElementById('table-report-history');
+    tbody.innerHTML = (history || []).map(h => {
+      const emailStatus = h.dispatch_status && h.dispatch_status.email ? h.dispatch_status.email.status : 'SKIPPED';
+      const emailClass = emailStatus === 'SENT' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : (emailStatus === 'SPOOLED' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-500');
+      
+      const whStatus = h.dispatch_status && h.dispatch_status.webhook ? h.dispatch_status.webhook.status : 'SKIPPED';
+      const whClass = whStatus === 'DELIVERED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : (whStatus === 'FAILED' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-500');
+
+      return `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2.5 text-slate-400 font-mono">${new Date(h.timestamp * 1000).toLocaleString()}</td>
+          <td class="py-2.5 font-bold text-white">${h.report_name}</td>
+          <td class="py-2.5 text-right font-bold text-cyan-400 font-mono">${h.avg_mbps} Mbps</td>
+          <td class="py-2.5 text-right font-semibold text-emerald-400 font-mono">${h.total_data_formatted}</td>
+          <td class="py-2.5 text-right text-slate-300 font-mono">${(h.flow_count || 0).toLocaleString()}</td>
+          <td class="py-2.5 text-center">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${emailClass}">${emailStatus}</span>
+          </td>
+          <td class="py-2.5 text-center">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${whClass}">${whStatus}</span>
+          </td>
+          <td class="py-2.5 text-center">
+            <a href="/api/v1/reports/${h.report_id}/export/html" target="_blank" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-semibold mr-1">HTML</a>
+            <a href="/api/v1/reports/${h.report_id}/export/csv" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold">CSV</a>
+          </td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="8" class="py-4 text-center text-slate-500">No report execution history</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load reports:', e);
+  }
+}
+
+async function runReportNow(reportId) {
+  try {
+    showToast('Executing report & generating notifications...', 'info');
+    const res = await fetch(`/api/v1/reports/${reportId}/run?notify=true`, { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'SUCCESS') {
+      const run = data.run;
+      const emailStatus = run.dispatch_status && run.dispatch_status.email ? run.dispatch_status.email.status : 'None';
+      showToast(`Report '${run.report_name}' generated! Email: ${emailStatus}`, 'success');
+      loadReports();
+    } else {
+      showToast(data.error || 'Execution failed', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to run report', 'error');
+  }
+}
+
+async function deleteReport(reportId) {
+  if (!confirm(`Are you sure you want to delete report '${reportId}'?`)) return;
+  try {
+    await fetch(`/api/v1/reports/${reportId}`, { method: 'DELETE' });
+    showToast('Report deleted', 'info');
+    loadReports();
+  } catch (e) {
+    showToast('Delete failed', 'error');
+  }
+}
+
+function openCreateReportModal() {
+  document.getElementById('modal-report').classList.remove('hidden');
+}
+
+function closeCreateReportModal() {
+  document.getElementById('modal-report').classList.add('hidden');
+}
+
+async function submitSaveReport() {
+  const name = document.getElementById('rep-form-name').value.trim();
+  if (!name) {
+    alert('Please enter a Report Name');
+    return;
+  }
+
+  const emailsRaw = document.getElementById('rep-form-emails').value;
+  const recipients = emailsRaw ? emailsRaw.split(',').map(e => e.trim()).filter(e => e) : [];
+
+  const conditions = {
+    src_as: document.getElementById('rep-form-src-as').value ? parseInt(document.getElementById('rep-form-src-as').value) : null,
+    dst_as: document.getElementById('rep-form-dst-as').value ? parseInt(document.getElementById('rep-form-dst-as').value) : null,
+    src_prefix: document.getElementById('rep-form-src-prefix').value.trim() || null,
+    dst_prefix: document.getElementById('rep-form-dst-prefix').value.trim() || null,
+    in_if_name: document.getElementById('rep-form-in-if').value.trim() || null,
+    dst_country: document.getElementById('rep-form-country').value.trim() || null,
+    time_window_minutes: parseInt(document.getElementById('rep-form-window').value || 60)
+  };
+
+  const payload = {
+    name: name,
+    description: document.getElementById('rep-form-desc').value.trim(),
+    schedule: document.getElementById('rep-form-schedule').value,
+    conditions: conditions,
+    recipients: recipients,
+    webhook_url: document.getElementById('rep-form-webhook').value.trim(),
+    status: 'ACTIVE'
+  };
+
+  try {
+    const res = await fetch('/api/v1/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    showToast(`Report '${payload.name}' saved and scheduled!`, 'success');
+    closeCreateReportModal();
+    loadReports();
+  } catch (e) {
+    showToast('Failed to save report', 'error');
+  }
+}
+
+// ================= NOTIFICATION CENTER =================
+
+async function openNotificationModal() {
+  document.getElementById('modal-notification').classList.remove('hidden');
+  try {
+    const res = await fetch('/api/v1/notifications');
+    const logs = await res.json();
+    const listEl = document.getElementById('list-notifications-log');
+    document.getElementById('badge-notification-count').innerText = logs.length;
+
+    listEl.innerHTML = (logs || []).map(l => `
+      <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-start justify-between">
+        <div class="space-y-0.5">
+          <div class="font-bold text-white text-xs">${l.summary || l.type}</div>
+          <div class="text-[10px] text-slate-500 font-mono">${new Date(l.timestamp * 1000).toLocaleString()}</div>
+        </div>
+        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${l.email_status === 'SENT' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-cyan-500/20 text-cyan-400'}">${l.email_status || 'LOGGED'}</span>
+      </div>
+    `).join('') || '<div class="p-4 text-center text-slate-500">No alert logs</div>';
+  } catch (e) {
+    console.error('Failed to load notifications:', e);
+  }
+}
+
+function closeNotificationModal() {
+  document.getElementById('modal-notification').classList.add('hidden');
+}
+
+async function dispatchTestNotification() {
+  const email = document.getElementById('test-notif-email').value.trim();
+  const webhook = document.getElementById('test-notif-webhook').value.trim();
+
+  if (!email && !webhook) {
+    alert('Please enter at least an email address or webhook URL.');
+    return;
+  }
+
+  try {
+    showToast('Dispatching test notification...', 'info');
+    const params = new URLSearchParams();
+    if (email) params.set('email', email);
+    if (webhook) params.set('webhook', webhook);
+
+    const res = await fetch(`/api/v1/notifications/test?${params.toString()}`, { method: 'POST' });
+    const data = await res.json();
+    showToast('Test notification dispatched! Check logs.', 'success');
+    openNotificationModal();
+  } catch (e) {
+    showToast('Test notification failed', 'error');
+  }
+}
+
+function openRouterConfigModal() {
+  const modal = document.getElementById('modal-router-config');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeRouterConfigModal() {
+  const modal = document.getElementById('modal-router-config');
+  if (modal) modal.classList.add('hidden');
+}
+
+// ================= UTILITIES =================
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  const colorClass = type === 'success' ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200' : (type === 'warning' ? 'bg-amber-950/80 border-amber-500/50 text-amber-200' : (type === 'error' ? 'bg-red-950/80 border-red-500/50 text-red-200' : 'bg-slate-900 border-slate-700 text-slate-200'));
+
+  toast.className = `px-4 py-3 rounded-lg border shadow-xl flex items-center space-x-2 text-xs font-semibold transition transform duration-300 glass-card ${colorClass}`;
+  toast.innerHTML = `<i class="fa-solid fa-circle-info"></i><span>${message}</span>`;
+
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}

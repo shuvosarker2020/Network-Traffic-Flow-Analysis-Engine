@@ -1,0 +1,77 @@
+# ==============================================================================
+# AegisFlow Air-Gap & Confidentiality .gitignore
+# Strictly prevents sensitive flow tables, reports, logs & secrets from committing
+# ==============================================================================
+
+# Python bytecode & environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Columnar Storage & Local Telemetry Databases (Air-Gap Protection)
+data/*.duckdb
+data/*.duckdb.wal
+data/*.duckdb.tmp
+data/*.parquet
+data/spooled_emails/
+*.duckdb
+*.duckdb.wal
+
+# Generated Reports & Spool Dumps (No sensitive customer traffic reports in VCS)
+reports/spool/
+reports/generated/
+data/report_runs.json
+*.pdf
+*.csv
+
+# Logs & Diagnostics
+*.log
+logs/
+data/*.log
+*.tmp
+*.bak
+
+# Environment variables, credentials & keys
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.crt
+secrets.yaml
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
