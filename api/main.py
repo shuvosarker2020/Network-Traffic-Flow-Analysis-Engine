@@ -5,6 +5,7 @@ Serves REST endpoints, WebSocket feeds, and UI static assets.
 
 import asyncio
 import os
+import time
 import yaml
 import logging
 from contextlib import asynccontextmanager
@@ -170,6 +171,10 @@ app.add_middleware(
 
 # ---------------- API ENDPOINTS ----------------
 
+@app.get("/api/v1/health")
+def get_system_health():
+    return {"status": "HEALTHY", "service": "AegisFlow", "timestamp": int(time.time())}
+
 @app.get("/api/v1/overview")
 def get_overview(minutes: int = Query(60, ge=1, le=1440)):
     return top_talkers.get_overview_kpis(minutes=minutes)
@@ -299,8 +304,12 @@ async def add_or_update_device(request: Request):
     return {"status": "SUCCESS", "device": dev_entry}
 
 @app.get("/api/v1/raw-flows")
-def get_raw_flows(limit: int = 50, src_ip: str = None, dst_ip: str = None, protocol: int = None, dscp: int = None):
+def get_raw_flows(limit: int = 50, src_ip: str = None, dst_ip: str = None, protocol: int = None, dscp: int = None, start_time: str = None, end_time: str = None):
     conditions = ["1=1"]
+    if start_time:
+        conditions.append(f"timestamp >= CAST('{start_time}' AS TIMESTAMP)")
+    if end_time:
+        conditions.append(f"timestamp <= CAST('{end_time}' AS TIMESTAMP)")
     if src_ip:
         conditions.append(f"src_ip LIKE '{src_ip}%'")
     if dst_ip:
@@ -349,6 +358,47 @@ async def get_pattern_multiview(request: Request):
     minutes = int(criteria.pop("time_window_minutes", 60) or 60)
     preset = str(criteria.pop("preset", "CDN_ENTRY_EXIT") or "CDN_ENTRY_EXIT")
     return pattern_engine.get_multiview_flow_data(criteria, minutes=minutes, preset=preset)
+
+@app.post("/api/v1/pattern/compare")
+async def compare_traffic_patterns_endpoint(request: Request):
+    """Compares traffic patterns across two time horizons (Day-to-Day, Week-to-Week, Month-by-Month, or Custom)."""
+    req = await request.json()
+    criteria = req.get("criteria", {})
+    compare_mode = req.get("compare_mode", "DAY_TO_DAY")
+    period_current = req.get("period_current")
+    period_baseline = req.get("period_baseline")
+    return pattern_engine.compare_traffic_patterns(
+        criteria=criteria,
+        compare_mode=compare_mode,
+        period_current=period_current,
+        period_baseline=period_baseline
+    )
+
+@app.get("/api/v1/pattern/compare")
+def get_traffic_pattern_comparison(
+    mode: str = "DAY_TO_DAY",
+    src_as: int = None,
+    dst_as: int = None,
+    src_prefix: str = None,
+    dst_prefix: str = None,
+    device_id: str = None,
+    application: str = None,
+    upstream_provider: str = None,
+    service_name: str = None,
+    selected_date: str = None
+):
+    """GET endpoint for traffic pattern comparison."""
+    criteria = {}
+    if src_as: criteria["src_as"] = src_as
+    if dst_as: criteria["dst_as"] = dst_as
+    if src_prefix: criteria["src_prefix"] = src_prefix
+    if dst_prefix: criteria["dst_prefix"] = dst_prefix
+    if device_id: criteria["device_id"] = device_id
+    if application: criteria["application"] = application
+    if upstream_provider: criteria["upstream_provider"] = upstream_provider
+    if service_name: criteria["service_name"] = service_name
+    if selected_date: criteria["selected_date"] = selected_date
+    return pattern_engine.compare_traffic_patterns(criteria=criteria, compare_mode=mode)
 
 @app.get("/api/v1/pattern/options")
 def get_pattern_filter_options():
@@ -554,9 +604,9 @@ async def execute_traffic_shift(request: Request):
     return {"status": "EXECUTED", "message": "BGP route policy applied successfully.", "suggestion_id": suggestion_id}
 
 @app.get("/api/v1/upstreams/multi-parameter-flows")
-def get_multi_parameter_flows(group_by: str = "IP_TO_IP", minutes: int = 60, limit: int = 50):
+def get_multi_parameter_flows(group_by: str = "IP_TO_IP", minutes: int = 60, limit: int = 50, start_time: str = None, end_time: str = None):
     """Multi-parameter flow mapping across IP-to-IP, Prefix-to-Prefix, Device-to-IP, ASN-to-ASN, and Upstream-to-Service."""
-    return pattern_engine.get_multi_parameter_flows(group_by=group_by, minutes=minutes, limit=limit)
+    return pattern_engine.get_multi_parameter_flows(group_by=group_by, minutes=minutes, limit=limit, start_time=start_time, end_time=end_time)
 
 # ================= MOBILE APP API HUB =================
 

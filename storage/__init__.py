@@ -10,9 +10,9 @@ from storage.clickhouse_driver import ClickHouseStorageEngine
 
 _global_storage: Optional[BaseStorageEngine] = None
 
-def get_storage_engine(config: Optional[dict] = None) -> BaseStorageEngine:
+def get_storage_engine(config: Optional[dict] = None, read_only: bool = False) -> BaseStorageEngine:
     global _global_storage
-    if _global_storage is not None:
+    if _global_storage is not None and not read_only:
         return _global_storage
 
     cfg = config or {}
@@ -38,5 +38,7 @@ def get_storage_engine(config: Optional[dict] = None) -> BaseStorageEngine:
     duck_cfg = storage_cfg.get("duckdb", {})
     db_path = duck_cfg.get("path", "data/aegisflow.duckdb")
     threads = duck_cfg.get("threads", 4)
-    _global_storage = DuckDBStorageEngine(db_path=db_path, threads=threads)
-    return _global_storage
+    storage = DuckDBStorageEngine(db_path=db_path, threads=threads, read_only=read_only)
+    if not read_only:
+        _global_storage = storage
+    return storage

@@ -17,7 +17,11 @@ It is engineered from the ground up to ingest, enrich, and analyze continuous fl
 1. [Architectural Overview & Data Flow](#-architectural-overview--data-flow)
 2. [Multi-Vendor Hardware & Protocol Support](#-multi-vendor-hardware--protocol-support)
 3. [Zero-Touch Ingestion vs. Optional Device Registration](#-zero-touch-ingestion-vs-optional-device-registration)
-4. [Multi-Condition Filtering & Saved Reports Engine](#-multi-condition-filtering--saved-reports-engine)
+4. [Multi-Condition Filtering, Date Selection & Saved Reports Engine](#-multi-condition-filtering-date-selection--saved-reports-engine)
+   - [Granular Multi-Attribute Filter Capabilities](#granular-multi-attribute-filter-capabilities)
+   - [Custom Date Range Filtering & Historical Presets](#custom-date-range-filtering--historical-presets)
+   - [Traffic Pattern Demand Comparison Studio (DoD, WoW, MoM)](#traffic-pattern-demand-comparison-studio-dod-wow-mom)
+   - [Automated Report Generator & Notifications](#automated-report-generator--notifications)
 5. [Upstream Bandwidth Management & Smart IIG Traffic Shift (>1,000 Gbps)](#-upstream-bandwidth-management--smart-iig-traffic-shift-1000-gbps)
 6. [Mobile App & Progressive Web App (PWA) Support](#-mobile-app--progressive-web-app-pwa-support)
 7. [Multi-View Traffic Visualization Studio (Graph Change Options)](#-multi-view-traffic-visualization-studio-graph-change-options)
@@ -145,15 +149,95 @@ Manual registration or SNMP polling can be used to enrich telemetry with human-f
 
 ---
 
-## 🎯 Multi-Condition Filtering & Saved Reports Engine
+## 🎯 Multi-Condition Filtering, Date Selection & Saved Reports Engine
 
-AegisFlow features a multi-attribute pattern matching engine that lets network architects query complex traversal scenarios and schedule automated executive reports:
+AegisFlow features a multi-attribute pattern matching engine that lets network architects query complex traversal scenarios, perform granular date/time selection, execute demand-driven pattern comparisons, and schedule automated executive reports:
 
-### Multi-Attribute Filter Capabilities
+### Granular Multi-Attribute Filter Capabilities
 1. **ASN-to-ASN & Specific IP / Prefix**: e.g., Filter traffic originating in **AS3356 (Lumen)** heading to **AS15169 (Google)** targeting destination prefix `8.8.8.0/24`.
 2. **Source Prefix to Ingress Interface**: e.g., Trace internal subnet `10.0.0.0/16` traversing border interface `HundredGigE0/0/0/1`.
 3. **Destination Prefix & Device**: e.g., Trace traffic destined for cloud prefix `52.94.0.0/16` routed via `juniper-fra1-core-002`.
-4. **Country, Protocol & Flow Direction**: Filter by ISO country code (`US`, `DE`, `JP`), L4 protocol (`TCP`, `UDP`, `ICMP`), DSCP tags, and direction (`East-West` vs `North-South`).
+4. **Upstream Provider & Service Pool**: Filter by Tier-1 carrier (`Tata Communications`, `Bharti Airtel`, `Telia`, etc.) and delivery tier (`IPT`, `PNI`, `MixCDN`, `Baishan`, `IX`, `GGC`, `FNA`).
+5. **Country, Protocol & Flow Direction**: Filter by ISO country code (`US`, `DE`, `JP`), L4 protocol (`TCP`, `UDP`, `ICMP`), DSCP tags, and direction (`East-West` vs `North-South`).
+
+---
+
+### 📅 Custom Date Range Filtering & Historical Presets
+
+Operators can filter flow telemetry by exact historical date and time boundaries across the Traffic Pattern Studio, Raw Flow Explorer, and Multi-Parameter tables:
+
+```
+[ Quick Presets: Today | Yesterday | Last 7 Days | Last 30 Days ]
+[ Start Time: 2026-10-23 00:00:00 ] ────► [ End Time: 2026-10-30 23:59:59 ]
+```
+
+- **Dynamic Analytical Time-Bucketing**:
+  The backend dynamically computes optimal time bucket resolution according to the selected duration:
+  - $\le 2\text{ hours}$: **60-second** high-resolution buckets.
+  - $\le 24\text{ hours}$: **5-minute (300s)** operational buckets.
+  - $\le 7\text{ days}$: **30-minute (1800s)** rolling trend buckets.
+  - $\le 30\text{ days}$: **2-hour (7200s)** capacity buckets.
+  - $> 30\text{ days}$: **1-day (86400s)** executive macro buckets.
+- **Timestamp Anchoring**:
+  When querying historical datasets or demo archives, relative queries automatically anchor to the latest flow timestamp in the database (`MAX(timestamp)`), guaranteeing smooth, gapless traffic curves without empty results.
+- **Synchronized Query Execution**:
+  Passing `start_time` and `end_time` (ISO 8601 or `YYYY-MM-DD HH:MM:SS`) filters raw flows, Sankey flows, ranked bars, area trend charts, and multi-parameter carrier tables simultaneously.
+
+---
+
+### ⇄ Traffic Pattern Demand Comparison Studio (DoD, WoW, MoM)
+
+The **Demand Comparison Studio** enables network planners, capacity engineers, and NOC directors to detect demand shifts, verify diurnal curves, and isolate anomalies by comparing any two historical timeframes side-by-side:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                            Demand Horizon Comparison Switcher                               │
+│   [ 📅 Day to Day (DoD) ]   [ 🗓️ Week to Week (WoW) ]   [ 📊 Month by Month (MoM) ]   [ ⏱️ Custom Dates ] │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+                                           │
+       ┌───────────────────────────────────┴───────────────────────────────────┐
+       ▼                                                                       ▼
+┌───────────────────────────────────────┐               ┌───────────────────────────────────────┐
+│     Current Period (Solid Wave)       │               │      Baseline Period (Dashed Wave)     │
+│  e.g. Current Monday 00:00 - 23:59    │  VS           │  e.g. Previous Monday 00:00 - 23:59   │
+│  Throughput: 11,125 Mbps (109.3 TB)   │               │  Throughput: 10,940 Mbps (107.5 TB)   │
+└───────────────────────────────────────┘               └───────────────────────────────────────┘
+                                           │
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 📈 Synchronized Dual-Wave Overlay Timeseries  ·  📊 Side-by-Side Grouped Comparison Bars   │
+│ 📋 Dimensional Delta Variance Table (Top Surging/Dropping ASNs, Protocols, Upstreams)      │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Comparison Modes:
+1. **Day to Day (DoD)**:
+   Compares 24 hours of traffic against the preceding 24 hours (or a specific target calendar day against the day prior), bucketed into 24 synchronized hourly points.
+2. **Week to Week (WoW)**:
+   Compares a 7-day rolling window against the prior 7-day window, day-matched (Monday to Monday, Sunday to Sunday) across 7 synchronized daily points to account for weekend demand drops.
+3. **Month to Month (MoM)**:
+   Compares a 30-day billing cycle against the prior 30-day baseline across 30 synchronized daily points, exposing long-term subscriber growth trends.
+4. **Custom Horizon Comparison**:
+   Enables arbitrary range comparisons (e.g. Peak Event Window vs Normal Baseline Day) with user-defined start and end timestamps for both the current and baseline horizons.
+
+#### Comparative Metrics & Intelligence:
+- **KPI Variance Cards**:
+  - **Throughput Delta**: Net change in average wire-rate ($\Delta\text{ Mbps}$ and $\% \text{ variance}$).
+  - **Transferred Volume Delta**: Absolute shift in total byte volume ($\Delta\text{ GB / TB}$).
+  - **Peak Wire-Rate Comparison**: Peak current Mbps vs peak baseline Mbps.
+  - **Divergence Status**: Automated categorization into `NORMAL_VARIANCE` ($\pm 15\%$), `SURGE_SPIKE` ($> +15\%$), or `DROP_DIVERGENCE` ($< -15\%$).
+- **Multi-View Comparative Visualizations**:
+  - **Dual-Wave Overlay Timeseries**: Renders the Current curve (solid emerald/cyan wave) against the Baseline curve (dashed amber wave) with synchronized cursor tooltips showing simultaneous current vs baseline Mbps and packet rates.
+  - **Side-by-Side Grouped Bars**: Displays adjacent bars for Current and Baseline per time interval, immediately highlighting specific hours or days of divergence.
+  - **Dimensional Delta Variance Analysis**: Identifies exact traffic surges and drops across:
+    - *Autonomous Systems (Top Surging vs Dropping ASNs)*
+    - *Applications & L4/L7 Protocols (HTTPS, DNS, QUIC, BGP, etc.)*
+    - *Upstream Providers (Tata, Airtel, Telia, Cogent, etc.)*
+    - *Router Interfaces & Links*
+- **One-Click CSV Export**:
+  Export complete comparative intervals, baseline values, delta percentages, and dimensional changes directly into CSV for executive capacity audits and board presentations.
+
+---
 
 ### Automated Report Generator & Notifications
 - **Scheduled Triggers**: Run reports automatically on a recurring schedule (**Hourly**, **Daily**, **Weekly**, or **On-Demand**).
@@ -460,11 +544,14 @@ docker compose up -d
 | `GET` | `/api/v1/site-to-site` | WAN traffic between datacenters and clouds |
 | `GET` | `/api/v1/geomap` | Geographic source-destination flow coordinates |
 
-### Multi-Condition Filtering & Reporting
+### Multi-Condition Filtering, Date Horizons & Demand Comparison
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST`| `/api/v1/pattern/query` | Executes multi-condition filter queries (ASN, prefix, device, etc.) |
-| `GET` | `/api/v1/pattern/options` | Dynamic filter dropdown options (ASNs, devices, interfaces) |
+| `POST`| `/api/v1/pattern/query` | Executes multi-condition filter queries with optional date bounds |
+| `POST`| `/api/v1/pattern/compare` | Runs Day-to-Day, Week-to-Week, Month-to-Month & Custom pattern demand comparisons |
+| `GET` | `/api/v1/pattern/compare` | Quick query execution for pattern demand comparisons |
+| `GET` | `/api/v1/pattern/options` | Dynamic filter dropdown options (ASNs, devices, interfaces, upstreams, services) |
+| `GET` | `/api/v1/health` | System health check, storage status, and active timestamp |
 | `GET` | `/api/v1/reports` | Lists all saved scheduled reports |
 | `POST`| `/api/v1/reports` | Creates a new condition-based automated report |
 | `POST`| `/api/v1/reports/{id}/run`| Executes report on-demand and dispatches email/webhook |

@@ -311,5 +311,22 @@
     "bgp_community": "65000:1",
     "status": "ACTIVE",
     "description": "SEA-ME-WE-5 Consortium IPT link with 500.0 Gbps purchased bandwidth."
+  },
+  {
+    "id": "up-etl-ipt-9577",
+    "provider_name": "ETL",
+    "service_name": "IPT",
+    "capacity_gbps": 5.0,
+    "warn_threshold_pct": 90.0,
+    "crit_threshold_pct": 95.0,
+    "cost_per_mbps": 0.45,
+    "associated_asns": [
+      58715
+    ],
+    "associated_interfaces": [],
+    "associated_devices": [],
+    "bgp_community": "65000:577",
+    "status": "ACTIVE",
+    "description": "ETL IPT link with 5.0 Gbps purchased bandwidth."
   }
 ]

@@ -801,6 +801,25 @@ async function loadPatternStudio() {
         devSelect.innerHTML = '<option value="">All Exporter Devices (1,000+)</option>' + 
           opts.devices.map(d => `<option value="${d.device_id}">${d.device_name} (${d.vendor} - ${d.site})</option>`).join('');
       }
+
+      const upSelect = document.getElementById('pat-upstream');
+      if (upSelect && opts.upstream_providers) {
+        upSelect.innerHTML = '<option value="">All Providers (Transit & Peering)</option>' +
+          opts.upstream_providers.map(p => `<option value="${p}">${p}</option>`).join('');
+      }
+
+      const svcSelect = document.getElementById('pat-service');
+      if (svcSelect && opts.services) {
+        svcSelect.innerHTML = '<option value="">All Services (IPT, PNI, CDN...)</option>' +
+          opts.services.map(s => `<option value="${s}">${s}</option>`).join('');
+      }
+
+      // Default target day for Day-to-Day comparison
+      const targetDayInput = document.getElementById('cmp-target-date');
+      if (targetDayInput && !targetDayInput.value) {
+        targetDayInput.value = '2026-10-30';
+      }
+
       patternOptionsLoaded = true;
     } catch (e) {
       console.error('Failed to load pattern options:', e);
@@ -1005,7 +1024,75 @@ function jumpToCdnSankey() {
   executePatternQuery();
 }
 
+function onPatternTimeChange(val) {
+  const customContainer = document.getElementById('pat-custom-date-container');
+  if (val === 'CUSTOM') {
+    customContainer?.classList.remove('hidden');
+  } else {
+    customContainer?.classList.add('hidden');
+    clearPatternDatePreset(false);
+  }
+}
+
+function toggleCustomDatePicker() {
+  const customContainer = document.getElementById('pat-custom-date-container');
+  if (customContainer) {
+    customContainer.classList.toggle('hidden');
+    if (!customContainer.classList.contains('hidden')) {
+      const timeSelect = document.getElementById('pat-time');
+      if (timeSelect) timeSelect.value = 'CUSTOM';
+    }
+  }
+}
+
+function setPatternDatePreset(preset) {
+  const startEl = document.getElementById('pat-start-datetime');
+  const endEl = document.getElementById('pat-end-datetime');
+  const badgeEl = document.getElementById('pat-date-badge');
+  const timeSelect = document.getElementById('pat-time');
+  const customContainer = document.getElementById('pat-custom-date-container');
+
+  if (timeSelect) timeSelect.value = 'CUSTOM';
+  if (customContainer) customContainer.classList.remove('hidden');
+  if (badgeEl) badgeEl.classList.remove('hidden');
+
+  if (preset === 'today') {
+    startEl.value = '2026-10-30T00:00';
+    endEl.value = '2026-10-30T23:59';
+  } else if (preset === 'yesterday') {
+    startEl.value = '2026-10-29T00:00';
+    endEl.value = '2026-10-29T23:59';
+  } else if (preset === 'last7d') {
+    startEl.value = '2026-10-23T00:00';
+    endEl.value = '2026-10-30T23:59';
+  } else if (preset === 'last30d') {
+    startEl.value = '2026-10-01T00:00';
+    endEl.value = '2026-10-30T23:59';
+  }
+}
+
+function clearPatternDatePreset(resetDropdown = true) {
+  const startEl = document.getElementById('pat-start-datetime');
+  const endEl = document.getElementById('pat-end-datetime');
+  const badgeEl = document.getElementById('pat-date-badge');
+  const timeSelect = document.getElementById('pat-time');
+  const customContainer = document.getElementById('pat-custom-date-container');
+
+  if (startEl) startEl.value = '';
+  if (endEl) endEl.value = '';
+  if (badgeEl) badgeEl.classList.add('hidden');
+  if (customContainer) customContainer.classList.add('hidden');
+  if (resetDropdown && timeSelect && timeSelect.value === 'CUSTOM') {
+    timeSelect.value = '60';
+  }
+}
+
 async function executePatternQuery() {
+  const startDt = document.getElementById('pat-start-datetime')?.value;
+  const endDt = document.getElementById('pat-end-datetime')?.value;
+  const timeVal = document.getElementById('pat-time')?.value;
+  const timeMinutes = timeVal === 'CUSTOM' ? 60 : parseInt(timeVal || 60);
+
   const reqBody = {
     src_as: document.getElementById('pat-src-as').value ? parseInt(document.getElementById('pat-src-as').value) : null,
     dst_as: document.getElementById('pat-dst-as').value ? parseInt(document.getElementById('pat-dst-as').value) : null,
@@ -1018,7 +1105,11 @@ async function executePatternQuery() {
     application: document.getElementById('pat-app').value || null,
     dscp: document.getElementById('pat-dscp').value !== "" ? parseInt(document.getElementById('pat-dscp').value) : null,
     flow_direction: document.getElementById('pat-direction').value || null,
-    time_window_minutes: parseInt(document.getElementById('pat-time').value || 60),
+    upstream_provider: document.getElementById('pat-upstream')?.value || null,
+    service_name: document.getElementById('pat-service')?.value || null,
+    time_window_minutes: timeMinutes,
+    start_time: startDt || null,
+    end_time: endDt || null,
     preset: currentPatternPreset
   };
 
@@ -1107,7 +1198,10 @@ function resetPatternFilterFields() {
   document.getElementById('pat-app').value = '';
   document.getElementById('pat-dscp').value = '';
   document.getElementById('pat-direction').value = '';
+  if (document.getElementById('pat-upstream')) document.getElementById('pat-upstream').value = '';
+  if (document.getElementById('pat-service')) document.getElementById('pat-service').value = '';
   document.getElementById('pat-time').value = '60';
+  clearPatternDatePreset(true);
 }
 
 function resetPatternFilters() {
@@ -1118,6 +1212,456 @@ function resetPatternFilters() {
   const badge = document.getElementById('active-view-badge');
   if (badge) badge.innerText = "Dynamic Multi-Condition Filter Flow";
   executePatternQuery();
+}
+
+// ================= TRAFFIC PATTERN COMPARISON STUDIO (DoD, WoW, MoM) =================
+
+let currentPatternStudioMode = 'multiview'; // 'multiview' | 'compare'
+let currentComparisonMode = 'DAY_TO_DAY';   // 'DAY_TO_DAY' | 'WEEK_TO_WEEK' | 'MONTH_BY_MONTH' | 'CUSTOM'
+let currentComparisonView = 'overlay';      // 'overlay' | 'bars' | 'deltas'
+let currentDeltaDimension = 'asns';         // 'asns' | 'apps' | 'upstreams' | 'interfaces'
+let activeComparisonData = null;
+let chartCompareOverlay = null;
+let chartCompareBars = null;
+
+function switchPatternStudioMode(mode) {
+  currentPatternStudioMode = mode;
+  const btnMulti = document.getElementById('btn-mode-multiview');
+  const btnCmp = document.getElementById('btn-mode-compare');
+  const contMulti = document.getElementById('container-studio-multiview');
+  const contCmp = document.getElementById('container-studio-compare');
+
+  if (mode === 'compare') {
+    btnCmp.className = "px-4 py-2 rounded-lg bg-amber-500/30 text-amber-300 border border-amber-500/50 text-xs font-bold flex items-center space-x-2 shadow-sm shadow-amber-500/20";
+    btnMulti.className = "px-4 py-2 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-bold flex items-center space-x-2 transition";
+    contMulti?.classList.add('hidden');
+    contCmp?.classList.remove('hidden');
+    
+    if (!activeComparisonData) {
+      executePatternComparison();
+    } else {
+      setTimeout(() => {
+        chartCompareOverlay?.resize();
+        chartCompareBars?.resize();
+      }, 100);
+    }
+  } else {
+    btnMulti.className = "px-4 py-2 rounded-lg bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 text-xs font-bold flex items-center space-x-2 shadow-sm shadow-cyan-500/20";
+    btnCmp.className = "px-4 py-2 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-xs font-bold flex items-center space-x-2 transition";
+    contCmp?.classList.add('hidden');
+    contMulti?.classList.remove('hidden');
+    renderActiveGraphView();
+  }
+}
+
+function setComparisonMode(mode) {
+  currentComparisonMode = mode;
+  ['dod', 'wow', 'mom', 'custom'].forEach(m => {
+    const btn = document.getElementById(`btn-cmp-${m}`);
+    if (btn) {
+      const isMatch = (mode === 'DAY_TO_DAY' && m === 'dod') ||
+                      (mode === 'WEEK_TO_WEEK' && m === 'wow') ||
+                      (mode === 'MONTH_BY_MONTH' && m === 'mom') ||
+                      (mode === 'CUSTOM' && m === 'custom');
+      if (isMatch) {
+        btn.className = "px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center space-x-1.5 shadow-sm shadow-amber-500/10";
+      } else {
+        btn.className = "px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 text-xs font-medium flex items-center space-x-1.5 transition";
+      }
+    }
+  });
+
+  const dayBar = document.getElementById('cmp-day-date-bar');
+  const customBar = document.getElementById('cmp-custom-dates-bar');
+  if (mode === 'DAY_TO_DAY') {
+    dayBar?.classList.remove('hidden');
+    customBar?.classList.add('hidden');
+  } else if (mode === 'CUSTOM') {
+    dayBar?.classList.add('hidden');
+    customBar?.classList.remove('hidden');
+  } else {
+    dayBar?.classList.add('hidden');
+    customBar?.classList.add('hidden');
+  }
+
+  executePatternComparison();
+}
+
+function switchComparisonView(view) {
+  currentComparisonView = view;
+  ['overlay', 'bars', 'deltas'].forEach(v => {
+    const btn = document.getElementById(`btn-cmpview-${v}`);
+    const cont = document.getElementById(`cmp-view-${v}-container`);
+    if (btn) {
+      if (v === view) {
+        btn.className = "px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold flex items-center space-x-1.5 shadow-sm shadow-amber-500/10";
+      } else {
+        btn.className = "px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 font-medium flex items-center space-x-1.5 transition";
+      }
+    }
+    if (cont) {
+      if (v === view) cont.classList.remove('hidden');
+      else cont.classList.add('hidden');
+    }
+  });
+
+  if (activeComparisonData) {
+    if (view === 'overlay') {
+      setTimeout(() => renderComparisonOverlayChart(activeComparisonData.timeseries_comparison), 50);
+    } else if (view === 'bars') {
+      setTimeout(() => renderComparisonBarsChart(activeComparisonData.timeseries_comparison), 50);
+    } else if (view === 'deltas') {
+      renderComparisonDeltasTable();
+    }
+  }
+}
+
+function switchDeltaDimension(dim) {
+  currentDeltaDimension = dim;
+  ['asns', 'apps', 'upstreams', 'interfaces'].forEach(d => {
+    const btn = document.getElementById(`btn-delta-${d}`);
+    if (btn) {
+      if (d === dim) {
+        btn.className = "px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 font-bold";
+      } else {
+        btn.className = "px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-200";
+      }
+    }
+  });
+  renderComparisonDeltasTable();
+}
+
+async function executePatternComparison() {
+  const criteria = {
+    src_as: document.getElementById('pat-src-as')?.value ? parseInt(document.getElementById('pat-src-as').value) : null,
+    dst_as: document.getElementById('pat-dst-as')?.value ? parseInt(document.getElementById('pat-dst-as').value) : null,
+    src_country: document.getElementById('pat-src-country')?.value || null,
+    dst_country: document.getElementById('pat-dst-country')?.value || null,
+    src_prefix: document.getElementById('pat-src-prefix')?.value || null,
+    dst_prefix: document.getElementById('pat-dst-prefix')?.value || null,
+    in_if_name: document.getElementById('pat-in-if')?.value || null,
+    device_id: document.getElementById('pat-device')?.value || null,
+    application: document.getElementById('pat-app')?.value || null,
+    dscp: document.getElementById('pat-dscp')?.value !== "" ? parseInt(document.getElementById('pat-dscp').value) : null,
+    flow_direction: document.getElementById('pat-direction')?.value || null,
+    upstream_provider: document.getElementById('pat-upstream')?.value || null,
+    service_name: document.getElementById('pat-service')?.value || null,
+  };
+
+  if (currentComparisonMode === 'DAY_TO_DAY') {
+    const targetDay = document.getElementById('cmp-target-date')?.value;
+    if (targetDay) criteria.selected_date = targetDay;
+  }
+
+  const payload = {
+    criteria: criteria,
+    compare_mode: currentComparisonMode
+  };
+
+  if (currentComparisonMode === 'CUSTOM') {
+    payload.period_current = {
+      start_time: document.getElementById('cmp-p1-start')?.value || null,
+      end_time: document.getElementById('cmp-p1-end')?.value || null
+    };
+    payload.period_baseline = {
+      start_time: document.getElementById('cmp-p2-start')?.value || null,
+      end_time: document.getElementById('cmp-p2-end')?.value || null
+    };
+  }
+
+  try {
+    const res = await fetch('/api/v1/pattern/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    activeComparisonData = data;
+    renderComparisonDashboard(data);
+  } catch (e) {
+    console.error('Pattern comparison failed:', e);
+    showToast('Failed to execute pattern comparison', 'error');
+  }
+}
+
+function renderComparisonDashboard(data) {
+  if (!data || !data.summary_delta) return;
+  const sm = data.summary_delta;
+  const div = data.divergence || {};
+
+  // KPI 1: Throughput Delta
+  const deltaMbpsEl = document.getElementById('cmp-kpi-delta-mbps');
+  const deltaMbpsBadge = document.getElementById('cmp-badge-mbps-trend');
+  if (deltaMbpsEl) deltaMbpsEl.innerText = `${sm.delta_mbps > 0 ? '+' : ''}${Number(sm.delta_mbps).toLocaleString()} Mbps`;
+  if (deltaMbpsBadge) {
+    const isUp = sm.delta_mbps >= 0;
+    deltaMbpsBadge.innerText = `${isUp ? '▲ +' : '▼ '}${sm.pct_change_mbps}%`;
+    deltaMbpsBadge.className = isUp 
+      ? "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+      : "px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30";
+  }
+  document.getElementById('cmp-kpi-cur-mbps').innerText = `${Number(sm.current_avg_mbps).toLocaleString()} Mbps`;
+  document.getElementById('cmp-kpi-base-mbps').innerText = `${Number(sm.baseline_avg_mbps).toLocaleString()} Mbps`;
+
+  // KPI 2: Total Volume Delta
+  const deltaGbEl = document.getElementById('cmp-kpi-delta-gb');
+  const deltaGbBadge = document.getElementById('cmp-badge-volume-trend');
+  if (deltaGbEl) deltaGbEl.innerText = `${sm.delta_gb > 0 ? '+' : ''}${sm.delta_gb.toLocaleString()} GB`;
+  if (deltaGbBadge) {
+    deltaGbBadge.innerText = `${sm.pct_change_bytes > 0 ? '▲ +' : '▼ '}${sm.pct_change_bytes}%`;
+  }
+  document.getElementById('cmp-kpi-cur-gb').innerText = `${sm.current_total_gb.toLocaleString()} GB`;
+  document.getElementById('cmp-kpi-base-gb').innerText = `${sm.baseline_total_gb.toLocaleString()} GB`;
+
+  // KPI 3: Peak Wire-Rate Delta
+  const deltaPeakEl = document.getElementById('cmp-kpi-delta-peak');
+  const deltaPeakBadge = document.getElementById('cmp-badge-peak-trend');
+  if (deltaPeakEl) deltaPeakEl.innerText = `${sm.delta_peak_mbps > 0 ? '+' : ''}${Number(sm.delta_peak_mbps).toLocaleString()} Mbps`;
+  if (deltaPeakBadge) {
+    deltaPeakBadge.innerText = `${sm.pct_change_peak > 0 ? '▲ +' : '▼ '}${sm.pct_change_peak}%`;
+  }
+  document.getElementById('cmp-kpi-cur-peak').innerText = `${Number(sm.current_peak_mbps).toLocaleString()} Mbps`;
+  document.getElementById('cmp-kpi-base-peak').innerText = `${Number(sm.baseline_peak_mbps).toLocaleString()} Mbps`;
+
+  // KPI 4: Divergence & Status
+  const divMsg = document.getElementById('cmp-kpi-divergence-msg');
+  const divBadge = document.getElementById('cmp-badge-divergence');
+  const periodLbl = document.getElementById('cmp-kpi-period-label');
+  if (divMsg) divMsg.innerText = div.message || "Normal diurnal variance";
+  if (divBadge) {
+    divBadge.innerText = div.status || "NORMAL";
+    if (div.status === 'SPIKE_SURGE') {
+      divBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30";
+    } else if (div.status === 'DROP_DIVERGENCE') {
+      divBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30";
+    } else {
+      divBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+    }
+  }
+  if (periodLbl) periodLbl.innerText = data.mode_label || "Comparison Horizon";
+
+  // Render view
+  if (currentComparisonView === 'overlay') {
+    renderComparisonOverlayChart(data.timeseries_comparison);
+  } else if (currentComparisonView === 'bars') {
+    renderComparisonBarsChart(data.timeseries_comparison);
+  } else if (currentComparisonView === 'deltas') {
+    renderComparisonDeltasTable();
+  }
+}
+
+function renderComparisonOverlayChart(seriesData) {
+  const chartDom = document.getElementById('chart-compare-overlay');
+  if (!chartDom || !window.echarts) return;
+  if (!chartCompareOverlay) chartCompareOverlay = echarts.init(chartDom);
+
+  const labels = (seriesData || []).map(s => s.label);
+  const currentVals = (seriesData || []).map(s => s.current_mbps);
+  const baselineVals = (seriesData || []).map(s => s.baseline_mbps);
+
+  const option = {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#0f172a',
+      borderColor: '#334155',
+      textStyle: { color: '#f8fafc', fontSize: 12 },
+      formatter: function (params) {
+        if (!params || !params.length) return '';
+        const idx = params[0].dataIndex;
+        const item = seriesData[idx] || {};
+        const sign = item.delta_mbps >= 0 ? '+' : '';
+        const color = item.delta_mbps >= 0 ? '#10b981' : '#f43f5e';
+        return `
+          <div class="font-bold text-slate-200 border-b border-slate-700 pb-1 mb-1.5">${item.label}</div>
+          <div class="flex items-center justify-between space-x-4 mb-1">
+            <span class="text-cyan-400 font-semibold">● Current Period:</span>
+            <span class="font-mono font-bold text-white">${Number(item.current_mbps).toLocaleString()} Mbps</span>
+          </div>
+          <div class="flex items-center justify-between space-x-4 mb-1.5">
+            <span class="text-amber-400 font-semibold">● Baseline Period:</span>
+            <span class="font-mono font-bold text-slate-300">${Number(item.baseline_mbps).toLocaleString()} Mbps</span>
+          </div>
+          <div class="flex items-center justify-between space-x-4 pt-1 border-t border-slate-800 text-[11px]">
+            <span class="text-slate-400">Delta Variance:</span>
+            <span class="font-mono font-bold" style="color: ${color}">${sign}${item.delta_mbps} Mbps (${sign}${item.pct_change}%)</span>
+          </div>
+        `;
+      }
+    },
+    legend: {
+      data: ['Current Period', 'Baseline Period'],
+      textStyle: { color: '#94a3b8', fontSize: 11 },
+      top: 5
+    },
+    grid: { left: '3%', right: '4%', bottom: '8%', top: '15%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLine: { lineStyle: { color: '#334155' } },
+      axisLabel: { color: '#94a3b8', fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Wire-Rate (Mbps)',
+      nameTextStyle: { color: '#94a3b8', fontSize: 11 },
+      axisLine: { lineStyle: { color: '#334155' } },
+      splitLine: { lineStyle: { color: 'rgba(51, 65, 85, 0.4)' } },
+      axisLabel: { color: '#94a3b8', fontSize: 11 }
+    },
+    series: [
+      {
+        name: 'Current Period',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 3, color: '#06b6d4' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(6, 182, 212, 0.35)' },
+            { offset: 1, color: 'rgba(6, 182, 212, 0.02)' }
+          ])
+        },
+        data: currentVals
+      },
+      {
+        name: 'Baseline Period',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 2.5, color: '#f59e0b', type: 'dashed' },
+        data: baselineVals
+      }
+    ]
+  };
+
+  chartCompareOverlay.setOption(option);
+}
+
+function renderComparisonBarsChart(seriesData) {
+  const chartDom = document.getElementById('chart-compare-bars');
+  if (!chartDom || !window.echarts) return;
+  if (!chartCompareBars) chartCompareBars = echarts.init(chartDom);
+
+  const labels = (seriesData || []).map(s => s.label);
+  const currentVals = (seriesData || []).map(s => s.current_mbps);
+  const baselineVals = (seriesData || []).map(s => s.baseline_mbps);
+
+  const option = {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: '#0f172a',
+      borderColor: '#334155',
+      textStyle: { color: '#f8fafc', fontSize: 12 }
+    },
+    legend: {
+      data: ['Current Period', 'Baseline Period'],
+      textStyle: { color: '#94a3b8', fontSize: 11 },
+      top: 5
+    },
+    grid: { left: '3%', right: '4%', bottom: '8%', top: '15%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLine: { lineStyle: { color: '#334155' } },
+      axisLabel: { color: '#94a3b8', fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Throughput (Mbps)',
+      nameTextStyle: { color: '#94a3b8', fontSize: 11 },
+      axisLine: { lineStyle: { color: '#334155' } },
+      splitLine: { lineStyle: { color: 'rgba(51, 65, 85, 0.4)' } },
+      axisLabel: { color: '#94a3b8', fontSize: 11 }
+    },
+    series: [
+      {
+        name: 'Current Period',
+        type: 'bar',
+        barGap: '15%',
+        itemStyle: { color: '#06b6d4', borderRadius: [4, 4, 0, 0] },
+        data: currentVals
+      },
+      {
+        name: 'Baseline Period',
+        type: 'bar',
+        itemStyle: { color: '#f59e0b', borderRadius: [4, 4, 0, 0] },
+        data: baselineVals
+      }
+    ]
+  };
+
+  chartCompareBars.setOption(option);
+}
+
+function renderComparisonDeltasTable() {
+  const tbody = document.getElementById('table-compare-deltas-body');
+  if (!tbody || !activeComparisonData) return;
+
+  const keyMap = {
+    asns: 'top_asns',
+    apps: 'top_applications',
+    upstreams: 'top_upstreams',
+    interfaces: 'top_interfaces'
+  };
+
+  const list = activeComparisonData.dimensional_deltas?.[keyMap[currentDeltaDimension]] || [];
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-500">No dimensional changes detected for current filters</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = list.map(item => {
+    const isUp = item.delta_mbps >= 0;
+    const badgeClass = isUp 
+      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30';
+    const icon = isUp ? '<i class="fa-solid fa-arrow-up text-emerald-400 mr-1"></i>' : '<i class="fa-solid fa-arrow-down text-rose-400 mr-1"></i>';
+    const sign = isUp ? '+' : '';
+
+    return `
+      <tr class="hover:bg-slate-800/40 transition">
+        <td class="py-2.5 px-3 font-semibold text-slate-200">${item.entity}</td>
+        <td class="py-2.5 px-3 text-right text-slate-400">${Number(item.baseline_mbps).toLocaleString()} Mbps</td>
+        <td class="py-2.5 px-3 text-right text-cyan-400 font-bold">${Number(item.current_mbps).toLocaleString()} Mbps</td>
+        <td class="py-2.5 px-3 text-right font-bold ${isUp ? 'text-emerald-400' : 'text-rose-400'}">${sign}${item.delta_mbps} Mbps</td>
+        <td class="py-2.5 px-3 text-right"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}">${sign}${item.pct_change}%</span></td>
+        <td class="py-2.5 px-3 text-center text-xs font-semibold">${icon}${item.direction}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function exportComparisonCSV() {
+  if (!activeComparisonData) {
+    showToast('Run a comparison first before exporting', 'error');
+    return;
+  }
+
+  let csv = "Step,Label,Current_Mbps,Baseline_Mbps,Delta_Mbps,Pct_Change\n";
+  (activeComparisonData.timeseries_comparison || []).forEach(s => {
+    csv += `${s.step},"${s.label}",${s.current_mbps},${s.baseline_mbps},${s.delta_mbps},${s.pct_change}\n`;
+  });
+
+  csv += "\nDimension,Entity,Current_Mbps,Baseline_Mbps,Delta_Mbps,Pct_Change,Direction\n";
+  const deltas = activeComparisonData.dimensional_deltas || {};
+  Object.keys(deltas).forEach(dim => {
+    (deltas[dim] || []).forEach(item => {
+      csv += `${dim},"${item.entity}",${item.current_mbps},${item.baseline_mbps},${item.delta_mbps},${item.pct_change},${item.direction}\n`;
+    });
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `AegisFlow_Comparison_${activeComparisonData.compare_mode}_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('Comparison CSV exported successfully');
 }
 
 function openCreateReportModalWithCurrentFilters() {

@@ -13,16 +13,18 @@ from storage.engine import BaseStorageEngine
 logger = logging.getLogger("AegisFlow.Storage.DuckDB")
 
 class DuckDBStorageEngine(BaseStorageEngine):
-    def __init__(self, db_path: str = "data/aegisflow.duckdb", threads: int = 4):
+    def __init__(self, db_path: str = "data/aegisflow.duckdb", threads: int = 4, read_only: bool = False):
         self.db_path = db_path
+        self.read_only = read_only
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self.lock = threading.Lock()
         
         # Connect to DuckDB database
-        self.con = duckdb.connect(database=self.db_path, read_only=False)
+        self.con = duckdb.connect(database=self.db_path, read_only=read_only)
         self.con.execute(f"PRAGMA threads={threads};")
         self.con.execute("PRAGMA memory_limit='4GB';")
-        self._init_schema()
+        if not read_only:
+            self._init_schema()
 
     def _init_schema(self):
         with self.lock:
