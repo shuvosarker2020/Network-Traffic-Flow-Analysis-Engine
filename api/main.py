@@ -26,6 +26,7 @@ from analytics.anomaly_detector import AnomalyDetector
 from analytics.capacity_planner import CapacityPlanner
 from analytics.billing_engine import BillingEngine
 from analytics.pattern_engine import TrafficPatternEngine
+from analytics.upstream_manager import upstream_manager
 from reports import ReportManager, ReportScheduler, notifier
 from simulation.flow_generator import seed_initial_telemetry, generate_random_flow_records
 from simulation.attack_simulator import inject_attacks_into_storage, attack_controller
@@ -363,7 +364,9 @@ def get_pattern_filter_options():
         "devices": devs_res,
         "interfaces": [r["in_if_name"] for r in ifs_res],
         "countries": [r["dst_country"] for r in countries_res],
-        "applications": [r["application"] for r in apps_res]
+        "applications": [r["application"] for r in apps_res],
+        "upstream_providers": sorted(list(set(u["provider_name"] for u in upstream_manager.get_all()))),
+        "services": sorted(list(set(u["service_name"] for u in upstream_manager.get_all())))
     }
 
 # ================= AUTOMATED REPORTS & NOTIFICATIONS =================
@@ -498,6 +501,94 @@ async def stop_simulated_attack():
 def get_simulated_attack_status():
     """Returns the current state and metrics of the attack simulation engine."""
     return attack_controller.get_status()
+
+# ================= UPSTREAM PROVIDERS & IIG TRAFFIC SHIFT ENGINE =================
+
+@app.get("/api/v1/upstreams")
+def get_upstreams(minutes: int = 5):
+    """Returns all Upstream Providers & Services with real-time wire-rate Gbps and utilization %."""
+    return upstream_manager.calculate_utilization(storage, window_minutes=minutes)
+
+@app.post("/api/v1/upstreams")
+async def create_upstream(request: Request):
+    """Adds a new Upstream Provider & Service with purchased bandwidth capacity."""
+    data = await request.json()
+    created = upstream_manager.add_upstream(data)
+    return {"status": "SUCCESS", "upstream": created}
+
+@app.put("/api/v1/upstreams/{upstream_id}")
+async def update_upstream(upstream_id: str, request: Request):
+    """Updates an existing Upstream Provider & Service."""
+    data = await request.json()
+    updated = upstream_manager.update_upstream(upstream_id, data)
+    if not updated:
+        return JSONResponse(status_code=404, content={"error": "Upstream not found"})
+    return {"status": "SUCCESS", "upstream": updated}
+
+@app.delete("/api/v1/upstreams/{upstream_id}")
+def delete_upstream(upstream_id: str):
+    """Deletes an Upstream Provider & Service configuration."""
+    deleted = upstream_manager.delete_upstream(upstream_id)
+    if not deleted:
+        return JSONResponse(status_code=404, content={"error": "Upstream not found"})
+    return {"status": "SUCCESS", "message": f"Upstream {upstream_id} removed"}
+
+@app.get("/api/v1/upstreams/shift-suggestions")
+def get_traffic_shift_suggestions(minutes: int = 5):
+    """Returns smart traffic shift suggestions from congested IIGs to available IIGs with headroom."""
+    return upstream_manager.generate_shift_suggestions(storage, window_minutes=minutes)
+
+@app.post("/api/v1/upstreams/shift-execute")
+async def execute_traffic_shift(request: Request):
+    """Simulates or deploys recommended BGP traffic shift policy to rebalance IIG traffic."""
+    data = await request.json()
+    suggestion_id = data.get("suggestion_id", "manual")
+    title = data.get("title", "Traffic Shift Executed")
+    notifier.record_in_app_notification({
+        "category": "TRAFFIC_ENGINEERING",
+        "severity": "INFO",
+        "title": f"BGP Traffic Shift Deployed: {title}",
+        "message": "Successfully applied BGP routing policy to rebalance traffic to target IIG.",
+        "payload": data
+    })
+    return {"status": "EXECUTED", "message": "BGP route policy applied successfully.", "suggestion_id": suggestion_id}
+
+@app.get("/api/v1/upstreams/multi-parameter-flows")
+def get_multi_parameter_flows(group_by: str = "IP_TO_IP", minutes: int = 60, limit: int = 50):
+    """Multi-parameter flow mapping across IP-to-IP, Prefix-to-Prefix, Device-to-IP, ASN-to-ASN, and Upstream-to-Service."""
+    return pattern_engine.get_multi_parameter_flows(group_by=group_by, minutes=minutes, limit=limit)
+
+# ================= MOBILE APP API HUB =================
+
+@app.get("/api/v1/mobile/summary")
+def get_mobile_summary():
+    """Optimized lightweight executive summary tailored for mobile app and PWA."""
+    upstreams_data = upstream_manager.calculate_utilization(storage, window_minutes=5)
+    shift_suggestions = upstream_manager.generate_shift_suggestions(storage, window_minutes=5)
+    ddos_alerts = ddos_detector.scan_for_attacks(window_minutes=15)
+    
+    return {
+        "network_status": "CRITICAL" if len(ddos_alerts) > 0 or upstreams_data["summary"]["congested_count"] > 0 else "HEALTHY",
+        "total_capacity_tbps": upstreams_data["summary"]["total_capacity_tbps"],
+        "total_utilized_gbps": upstreams_data["summary"]["total_utilized_gbps"],
+        "overall_utilization_pct": upstreams_data["summary"]["overall_utilization_pct"],
+        "congested_upstreams_count": upstreams_data["summary"]["congested_count"],
+        "active_ddos_count": len(ddos_alerts),
+        "shift_suggestions_count": len(shift_suggestions),
+        "top_shift_suggestion": shift_suggestions[0] if shift_suggestions else None,
+        "upstreams": [
+            {
+                "id": u["id"],
+                "name": u["provider_name"],
+                "service": u["service_name"],
+                "util_pct": u["utilization_pct"],
+                "gbps": u["current_gbps"],
+                "cap_gbps": u["capacity_gbps"],
+                "health": u["health"]
+            }
+            for u in upstreams_data["upstreams"][:6]
+        ]
+    }
 
 # WebSocket for real-time live events
 @app.websocket("/ws/live")

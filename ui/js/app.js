@@ -13,12 +13,26 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
   loadOverview();
   pollAttackStatus();
+  registerPWA();
 
   // Auto-refresh data every 10 seconds
   setInterval(() => {
     refreshCurrentTab();
   }, 10000);
 });
+
+function registerPWA() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+  }
+}
+
+function toggleMobileSidebar() {
+  const sidebar = document.getElementById('app-sidebar');
+  if (sidebar) {
+    sidebar.classList.toggle('-translate-x-full');
+  }
+}
 
 function initClock() {
   const clockEl = document.getElementById('live-clock');
@@ -66,9 +80,16 @@ function switchTab(tabId) {
   const activePane = document.getElementById(`tab-${tabId}`);
   if (activePane) activePane.classList.remove('hidden');
 
+  // Close mobile sidebar on tab selection
+  const sidebar = document.getElementById('app-sidebar');
+  if (sidebar && !sidebar.classList.contains('-translate-x-full')) {
+    sidebar.classList.add('-translate-x-full');
+  }
+
   // Trigger tab-specific loaders and resize charts
   setTimeout(() => {
     if (tabId === 'overview') loadOverview();
+    else if (tabId === 'upstreams') { loadUpstreamData(); loadMultiParameterFlows('IP_TO_IP'); }
     else if (tabId === 'pattern') loadPatternStudio();
     else if (tabId === 'top-talkers') loadTopTalkers();
     else if (tabId === 'peering') loadPeering();
@@ -1390,4 +1411,524 @@ function showToast(message, type = 'info') {
     toast.style.opacity = '0';
     setTimeout(() => toast.remove(), 300);
   }, 4000);
+}
+
+// ================= UPSTREAM & IIG TRAFFIC SHIFT ENGINE =================
+
+let rawUpstreamsList = [];
+let currentShiftSuggestions = [];
+let currentActiveShiftIdx = 0;
+let currentMultiParamData = [];
+let currentMultiParamMode = 'IP_TO_IP';
+
+async function loadUpstreamData() {
+  try {
+    const res = await fetch('/api/v1/upstreams?minutes=5');
+    const data = await res.json();
+    rawUpstreamsList = data.upstreams || [];
+
+    const summary = data.summary || {};
+    const capEl = document.getElementById('kpi-upstream-total-cap');
+    const capSubEl = document.getElementById('kpi-upstream-total-cap-sub');
+    const utilEl = document.getElementById('kpi-upstream-total-utilized');
+    const utilPctEl = document.getElementById('kpi-upstream-util-pct');
+    const headroomEl = document.getElementById('kpi-upstream-total-headroom');
+    const congEl = document.getElementById('kpi-upstream-congested');
+    const congSubEl = document.getElementById('kpi-upstream-congested-sub');
+    const badgeIig = document.getElementById('badge-congested-iig');
+
+    if (capEl) capEl.innerText = `${summary.total_capacity_tbps || 0} Tbps`;
+    if (capSubEl) capSubEl.innerText = `${(summary.total_capacity_gbps || 0).toLocaleString()} Gbps Purchased Capacity`;
+    if (utilEl) utilEl.innerText = `${(summary.total_utilized_gbps || 0).toLocaleString()} Gbps`;
+    if (utilPctEl) utilPctEl.innerText = `${summary.overall_utilization_pct || 0}% Aggregate Utilization`;
+    if (headroomEl) headroomEl.innerText = `${(summary.overall_headroom_gbps || 0).toLocaleString()} Gbps`;
+
+    const congCount = summary.congested_count || 0;
+    if (congEl) congEl.innerText = `${congCount} ${congCount === 1 ? 'Link' : 'Links'}`;
+    if (congSubEl) {
+      congSubEl.innerText = congCount > 0 ? `${congCount} IIG over warning threshold` : 'All IIG links operating within limits';
+      congSubEl.className = congCount > 0 ? 'text-[11px] text-amber-400 mt-1 font-semibold' : 'text-[11px] text-emerald-400 mt-1';
+    }
+
+    if (badgeIig) {
+      if (congCount > 0) {
+        badgeIig.innerText = `! ${congCount}`;
+        badgeIig.classList.remove('hidden');
+      } else {
+        badgeIig.classList.add('hidden');
+      }
+    }
+
+    renderUpstreamTable(rawUpstreamsList);
+    loadTrafficShiftSuggestions();
+  } catch (e) {
+    console.error('Failed to load upstream data:', e);
+  }
+}
+
+function renderUpstreamTable(list) {
+  const tbody = document.getElementById('table-upstreams-body');
+  if (!tbody) return;
+
+  if (!list || list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-500">No configured upstream providers found. Click "+ Add Upstream / Service" to create one.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map(u => {
+    let serviceBadge = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+    if (u.service_name === 'PNI') serviceBadge = 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+    else if (u.service_name === 'GGC' || u.service_name === 'FNA') serviceBadge = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+    else if (u.service_name === 'MixCDN' || u.service_name === 'Baishan') serviceBadge = 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+    else if (u.service_name === 'IX') serviceBadge = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+
+    let barColor = 'bg-emerald-500';
+    let textColor = 'text-emerald-400';
+    if (u.health === 'CRITICAL') {
+      barColor = 'bg-red-500 animate-pulse';
+      textColor = 'text-red-400 font-bold';
+    } else if (u.health === 'WARNING') {
+      barColor = 'bg-amber-500';
+      textColor = 'text-amber-400 font-bold';
+    }
+
+    return `
+      <tr class="hover:bg-slate-800/40 transition">
+        <td class="py-3">
+          <div class="font-bold text-white flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full ${u.status === 'ACTIVE' ? 'bg-emerald-400' : 'bg-slate-500'}"></span>
+            <span>${u.provider_name}</span>
+          </div>
+          <div class="text-[10px] text-slate-400 truncate max-w-xs">${u.description || u.id}</div>
+        </td>
+        <td class="py-3">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${serviceBadge}">${u.service_name}</span>
+        </td>
+        <td class="py-3 text-right font-semibold text-slate-200">${u.capacity_gbps.toLocaleString()} Gbps</td>
+        <td class="py-3 text-right font-bold ${textColor}">${u.current_gbps.toLocaleString()} Gbps</td>
+        <td class="py-3 text-right text-emerald-400">${u.headroom_gbps.toLocaleString()} Gbps</td>
+        <td class="py-3">
+          <div class="flex items-center space-x-2">
+            <div class="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
+              <div class="${barColor} h-2 rounded-full transition-all duration-500" style="width: ${Math.min(u.utilization_pct, 100)}%"></div>
+            </div>
+            <span class="w-12 text-right ${textColor}">${u.utilization_pct}%</span>
+          </div>
+        </td>
+        <td class="py-3 text-center">
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${u.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-700 text-slate-400'}">${u.status}</span>
+        </td>
+        <td class="py-3 text-right">
+          <div class="flex items-center justify-end space-x-1.5">
+            <button onclick="editUpstream('${u.id}')" title="Edit Configuration" class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-cyan-400 transition"><i class="fa-solid fa-pen text-xs"></i></button>
+            <button onclick="deleteUpstream('${u.id}')" title="Delete" class="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-400 transition"><i class="fa-solid fa-trash text-xs"></i></button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterUpstreamServiceTable(svc) {
+  // Update active chip style
+  const container = document.getElementById('filter-chips-services');
+  if (container) {
+    container.querySelectorAll('button').forEach(btn => {
+      if (btn.innerText.trim() === svc) {
+        btn.className = 'px-2.5 py-1 rounded-lg bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 font-semibold';
+      } else {
+        btn.className = 'px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white';
+      }
+    });
+  }
+
+  if (svc === 'ALL') {
+    renderUpstreamTable(rawUpstreamsList);
+  } else {
+    const filtered = rawUpstreamsList.filter(u => u.service_name === svc);
+    renderUpstreamTable(filtered);
+  }
+}
+
+async function loadTrafficShiftSuggestions() {
+  const container = document.getElementById('container-shift-suggestions');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/v1/upstreams/shift-suggestions?minutes=5');
+    const suggestions = await res.json();
+    currentShiftSuggestions = suggestions || [];
+
+    if (!suggestions || suggestions.length === 0) {
+      container.innerHTML = `
+        <div class="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 flex items-center justify-between text-xs font-mono">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+              <i class="fa-solid fa-circle-check text-base"></i>
+            </div>
+            <div>
+              <div class="font-bold text-white font-sans text-sm">All Upstream IIG Bandwidths Balanced</div>
+              <div class="text-slate-400 text-xs mt-0.5">All 5+ upstream providers are operating below 80% threshold. No traffic rebalancing required.</div>
+            </div>
+          </div>
+          <span class="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[11px] border border-emerald-500/30">BALANCED</span>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = suggestions.map((s, idx) => {
+      const isCrit = s.priority === 'HIGH';
+      const badgeClass = isCrit ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-amber-500/20 text-amber-400 border-amber-500/40';
+      const borderClass = isCrit ? 'border-red-500/50 bg-red-950/30' : 'border-amber-500/50 bg-amber-950/30';
+
+      const asnsHtml = (s.candidate_asns || []).map(a =>
+        `<span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 text-[10px]">
+          <strong>${a.name}</strong> (${a.sample_prefix}) · <span class="text-amber-400 font-bold">~${a.estimated_traffic_gbps} Gbps</span>
+        </span>`
+      ).join(' ');
+
+      return `
+        <div class="p-5 rounded-xl border ${borderClass} shadow-xl space-y-3">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="flex items-start space-x-3">
+              <div class="w-9 h-9 rounded-lg ${badgeClass} border flex items-center justify-center mt-0.5">
+                <i class="fa-solid fa-triangle-exclamation text-base ${isCrit ? 'animate-bounce' : ''}"></i>
+              </div>
+              <div>
+                <div class="flex items-center space-x-2">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}">${s.priority} CONGESTION</span>
+                  <span class="text-sm font-bold text-white">${s.title}</span>
+                </div>
+                <p class="text-xs text-slate-300 mt-1">${s.reason}</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="openShiftDetailsModal(${idx})" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center space-x-1.5 transition">
+                <i class="fa-solid fa-code text-cyan-400"></i>
+                <span>View BGP Policy</span>
+              </button>
+              <button onclick="executeShiftDirectly(${idx})" class="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-amber-600/30 transition">
+                <i class="fa-solid fa-bolt"></i>
+                <span>Deploy Traffic Shift</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+            <span class="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Candidate ASNs to Divert:</span>
+            <div class="flex flex-wrap gap-1.5 font-mono">
+              ${asnsHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load traffic shift suggestions:', e);
+  }
+}
+
+function openShiftDetailsModal(idx) {
+  const s = currentShiftSuggestions[idx];
+  if (!s) return;
+  currentActiveShiftIdx = idx;
+
+  const modal = document.getElementById('modal-traffic-shift-details');
+  const content = document.getElementById('modal-shift-content');
+  if (!modal || !content) return;
+
+  content.innerHTML = `
+    <div class="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-2">
+      <div class="text-sm font-bold text-white">${s.title}</div>
+      <div class="text-xs text-slate-400">${s.reason}</div>
+      <div class="grid grid-cols-2 gap-3 text-xs pt-1">
+        <div>
+          <span class="text-slate-500">Source Congested IIG:</span>
+          <div class="text-red-400 font-bold">${s.source_upstream.provider_name} (${s.source_upstream.service_name}) - ${s.source_upstream.utilization_pct}% (${s.source_upstream.current_gbps}G / ${s.source_upstream.capacity_gbps}G)</div>
+        </div>
+        <div>
+          <span class="text-slate-500">Target Absorption IIG:</span>
+          <div class="text-emerald-400 font-bold">${s.target_upstream.provider_name} (${s.target_upstream.service_name}) - ${s.target_upstream.headroom_gbps}G Headroom</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+        <span>BGP Routing Configuration (Cisco IOS-XR / ASR 9000)</span>
+        <button onclick="copyToClipboard('code-bgp-cisco')" class="text-cyan-400 hover:text-cyan-300 text-[11px]"><i class="fa-solid fa-copy mr-1"></i>Copy</button>
+      </div>
+      <pre id="code-bgp-cisco" class="p-3 rounded bg-slate-950 text-cyan-300 text-[11px] border border-slate-800 overflow-x-auto">${s.bgp_commands.cisco_iosxr}</pre>
+    </div>
+
+    <div>
+      <div class="text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+        <span>BGP Routing Configuration (Juniper Junos PTX / MX)</span>
+        <button onclick="copyToClipboard('code-bgp-juniper')" class="text-cyan-400 hover:text-cyan-300 text-[11px]"><i class="fa-solid fa-copy mr-1"></i>Copy</button>
+      </div>
+      <pre id="code-bgp-juniper" class="p-3 rounded bg-slate-950 text-emerald-300 text-[11px] border border-slate-800 overflow-x-auto">${s.bgp_commands.juniper_junos}</pre>
+    </div>
+  `;
+
+  modal.classList.remove('hidden');
+}
+
+function closeShiftDetailsModal() {
+  const modal = document.getElementById('modal-traffic-shift-details');
+  if (modal) modal.classList.add('hidden');
+}
+
+function copyToClipboard(elemId) {
+  const el = document.getElementById(elemId);
+  if (!el) return;
+  navigator.clipboard.writeText(el.innerText).then(() => {
+    showToast('BGP command copied to clipboard!', 'success');
+  });
+}
+
+async function executeCurrentShift() {
+  closeShiftDetailsModal();
+  await executeShiftDirectly(currentActiveShiftIdx);
+}
+
+async function executeShiftDirectly(idx) {
+  const s = currentShiftSuggestions[idx];
+  if (!s) return;
+
+  try {
+    showToast(`Deploying BGP traffic shift from ${s.source_upstream.provider_name} to ${s.target_upstream.provider_name}...`, 'info');
+    const res = await fetch('/api/v1/upstreams/shift-execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(s)
+    });
+    const data = await res.json();
+    showToast('Traffic shift policy dispatched! BGP local-preference updated.', 'success');
+    loadUpstreamData();
+  } catch (e) {
+    showToast('Failed to deploy traffic shift', 'error');
+  }
+}
+
+// ================= MULTI-PARAMETER FLOW MAPPING =================
+
+async function loadMultiParameterFlows(groupBy = 'IP_TO_IP') {
+  currentMultiParamMode = groupBy;
+
+  // Update button highlights
+  ['ip-to-ip', 'prefix', 'device', 'asn', 'up-svc'].forEach(key => {
+    const btn = document.getElementById(`btn-map-${key}`);
+    if (btn) btn.className = 'px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-white';
+  });
+
+  if (groupBy === 'IP_TO_IP') {
+    const b = document.getElementById('btn-map-ip-to-ip');
+    if (b) b.className = 'px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 font-semibold';
+    document.getElementById('th-map-src').innerText = 'Source IP';
+    document.getElementById('th-map-dst').innerText = 'Destination IP';
+  } else if (groupBy === 'PREFIX_TO_PREFIX') {
+    const b = document.getElementById('btn-map-prefix');
+    if (b) b.className = 'px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 font-semibold';
+    document.getElementById('th-map-src').innerText = 'Source Subnet Prefix (/24)';
+    document.getElementById('th-map-dst').innerText = 'Destination Subnet Prefix (/24)';
+  } else if (groupBy === 'DEVICE_TO_IP') {
+    const b = document.getElementById('btn-map-device');
+    if (b) b.className = 'px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 font-semibold';
+    document.getElementById('th-map-src').innerText = 'Edge Router / Device';
+    document.getElementById('th-map-dst').innerText = 'Destination IP';
+  } else if (groupBy === 'ASN_TO_ASN') {
+    const b = document.getElementById('btn-map-asn');
+    if (b) b.className = 'px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 font-semibold';
+    document.getElementById('th-map-src').innerText = 'Origin Autonomous System (ASN)';
+    document.getElementById('th-map-dst').innerText = 'Destination Autonomous System (ASN)';
+  } else if (groupBy === 'UPSTREAM_TO_SERVICE') {
+    const b = document.getElementById('btn-map-up-svc');
+    if (b) b.className = 'px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 font-semibold';
+    document.getElementById('th-map-src').innerText = 'Carrier Upstream Provider';
+    document.getElementById('th-map-dst').innerText = 'Delivery Service Pool';
+  }
+
+  const tbody = document.getElementById('table-multiparam-flows-body');
+  if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-500">Querying multi-parameter flow correlation...</td></tr>`;
+
+  try {
+    const res = await fetch(`/api/v1/upstreams/multi-parameter-flows?group_by=${groupBy}&minutes=60&limit=30`);
+    const data = await res.json();
+    currentMultiParamData = data.flows || [];
+
+    if (!currentMultiParamData || currentMultiParamData.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-500">No active flow records found for this parameter grouping.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = currentMultiParamData.map(f => `
+      <tr class="hover:bg-slate-800/40 transition">
+        <td class="py-2.5 font-bold text-white">${f.source_entity || 'N/A'}</td>
+        <td class="py-2.5 text-slate-200">${f.destination_entity || 'N/A'}</td>
+        <td class="py-2.5 font-semibold text-cyan-300">${f.upstream_provider || 'Tata Communications'}</td>
+        <td class="py-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">${f.service_name || 'IPT'}</span></td>
+        <td class="py-2.5 text-right font-bold text-cyan-400">${f.gbps || (f.mbps / 1000).toFixed(3)} Gbps</td>
+        <td class="py-2.5 text-right text-slate-300">${(f.mbps || 0).toLocaleString()} Mbps</td>
+        <td class="py-2.5 text-right text-slate-400">${(f.packets || 0).toLocaleString()}</td>
+        <td class="py-2.5 text-right text-slate-400">${(f.flow_count || 1).toLocaleString()}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    console.error('Failed to load multi-parameter flows:', e);
+  }
+}
+
+function exportMultiParamCSV() {
+  if (!currentMultiParamData || currentMultiParamData.length === 0) {
+    showToast('No flow mapping data available to export.', 'warning');
+    return;
+  }
+
+  const headers = ['Source Entity', 'Destination Entity', 'Upstream Provider', 'Service Name', 'Gbps', 'Mbps', 'Packets', 'Flow Count'];
+  const rows = currentMultiParamData.map(f => [
+    `"${f.source_entity || ''}"`,
+    `"${f.destination_entity || ''}"`,
+    `"${f.upstream_provider || ''}"`,
+    `"${f.service_name || ''}"`,
+    f.gbps || 0,
+    f.mbps || 0,
+    f.packets || 0,
+    f.flow_count || 1
+  ]);
+
+  const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', `AegisFlow_TrafficMapping_${currentMultiParamMode}_${Date.now()}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast('Flow mapping CSV exported successfully.', 'success');
+}
+
+// ================= MODAL CONTROLLERS =================
+
+function openAddUpstreamModal() {
+  document.getElementById('modal-up-id').value = '';
+  document.getElementById('modal-up-title').innerText = 'Add Upstream Provider & Service Capacity';
+  document.getElementById('modal-up-provider-name').value = '';
+  document.getElementById('modal-up-service-name').value = 'IPT';
+  document.getElementById('modal-up-capacity-gbps').value = '200';
+  document.getElementById('modal-up-warn-th').value = '80';
+  document.getElementById('modal-up-crit-th').value = '90';
+  document.getElementById('modal-up-cost').value = '0.45';
+  document.getElementById('modal-up-asns').value = '';
+  document.getElementById('modal-up-interfaces').value = '';
+  document.getElementById('wrapper-custom-service').classList.add('hidden');
+  document.getElementById('modal-upstream-provider').classList.remove('hidden');
+}
+
+function closeUpstreamModal() {
+  document.getElementById('modal-upstream-provider').classList.add('hidden');
+}
+
+function onServiceTypeChange(val) {
+  const customWrapper = document.getElementById('wrapper-custom-service');
+  if (val === 'CUSTOM') {
+    customWrapper.classList.remove('hidden');
+  } else {
+    customWrapper.classList.add('hidden');
+  }
+}
+
+function setUpstreamPreset(provider, service, cap) {
+  document.getElementById('modal-up-provider-name').value = provider;
+  document.getElementById('modal-up-service-name').value = service;
+  document.getElementById('modal-up-capacity-gbps').value = cap;
+  onServiceTypeChange(service);
+}
+
+function editUpstream(id) {
+  const u = rawUpstreamsList.find(x => x.id === id);
+  if (!u) return;
+
+  document.getElementById('modal-up-id').value = u.id;
+  document.getElementById('modal-up-title').innerText = `Edit ${u.provider_name} (${u.service_name})`;
+  document.getElementById('modal-up-provider-name').value = u.provider_name;
+  document.getElementById('modal-up-service-name').value = u.service_name;
+  document.getElementById('modal-up-capacity-gbps').value = u.capacity_gbps;
+  document.getElementById('modal-up-warn-th').value = u.warn_threshold_pct;
+  document.getElementById('modal-up-crit-th').value = u.crit_threshold_pct;
+  document.getElementById('modal-up-cost').value = u.cost_per_mbps || 0;
+  document.getElementById('modal-up-asns').value = (u.associated_asns || []).join(', ');
+  document.getElementById('modal-up-interfaces').value = (u.associated_interfaces || []).join(', ');
+  onServiceTypeChange(u.service_name);
+
+  document.getElementById('modal-upstream-provider').classList.remove('hidden');
+}
+
+async function saveUpstreamProvider() {
+  const uid = document.getElementById('modal-up-id').value.trim();
+  const provider = document.getElementById('modal-up-provider-name').value.trim();
+  let service = document.getElementById('modal-up-service-name').value;
+  if (service === 'CUSTOM') {
+    service = document.getElementById('modal-up-custom-service').value.trim().toUpperCase() || 'CUSTOM';
+  }
+  const cap = parseFloat(document.getElementById('modal-up-capacity-gbps').value) || 100.0;
+  const warn = parseFloat(document.getElementById('modal-up-warn-th').value) || 80.0;
+  const crit = parseFloat(document.getElementById('modal-up-crit-th').value) || 90.0;
+  const cost = parseFloat(document.getElementById('modal-up-cost').value) || 0.40;
+
+  const asnsRaw = document.getElementById('modal-up-asns').value;
+  const asns = asnsRaw.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
+
+  const ifacesRaw = document.getElementById('modal-up-interfaces').value;
+  const ifaces = ifacesRaw.split(',').map(x => x.trim()).filter(x => x.length > 0);
+
+  if (!provider) {
+    alert('Please enter an Upstream Provider Name.');
+    return;
+  }
+
+  const payload = {
+    provider_name: provider,
+    service_name: service,
+    capacity_gbps: cap,
+    warn_threshold_pct: warn,
+    crit_threshold_pct: crit,
+    cost_per_mbps: cost,
+    associated_asns: asns,
+    associated_interfaces: ifaces,
+    status: 'ACTIVE'
+  };
+
+  try {
+    if (uid) {
+      await fetch(`/api/v1/upstreams/${uid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      showToast(`Updated upstream provider ${provider} (${service})`, 'success');
+    } else {
+      await fetch('/api/v1/upstreams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      showToast(`Created upstream provider ${provider} (${service})`, 'success');
+    }
+    closeUpstreamModal();
+    loadUpstreamData();
+  } catch (e) {
+    showToast('Failed to save upstream provider', 'error');
+  }
+}
+
+async function deleteUpstream(id) {
+  if (!confirm(`Are you sure you want to remove upstream provider ${id}?`)) return;
+  try {
+    await fetch(`/api/v1/upstreams/${id}`, { method: 'DELETE' });
+    showToast('Upstream provider removed', 'success');
+    loadUpstreamData();
+  } catch (e) {
+    showToast('Failed to delete upstream', 'error');
+  }
 }

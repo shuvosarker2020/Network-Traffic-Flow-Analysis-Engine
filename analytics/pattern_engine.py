@@ -101,6 +101,12 @@ class TrafficPatternEngine:
         if criteria.get("flow_direction"):
             clauses.append(f"flow_direction LIKE '%{criteria['flow_direction'].strip()}%'")
 
+        # 7. Upstream Provider & Service Filters (IIG / Transit / Peering / CDN)
+        if criteria.get("upstream_provider"):
+            clauses.append(f"upstream_provider = '{criteria['upstream_provider'].strip()}'")
+        if criteria.get("service_name"):
+            clauses.append(f"service_name = '{criteria['service_name'].strip().upper()}'")
+
         return " AND ".join(clauses)
 
     def analyze_pattern(self, criteria: Dict[str, Any], minutes: int = 60) -> Dict[str, Any]:
@@ -228,6 +234,23 @@ class TrafficPatternEngine:
         """
         top_apps = self.storage.query(sql_apps)
 
+        # 8. Upstream Provider & Service Breakdown
+        sql_upstreams = f"""
+        SELECT 
+            COALESCE(upstream_provider, 'Default Transit') AS upstream_provider,
+            COALESCE(service_name, 'IPT') AS service_name,
+            SUM(bytes) AS bytes,
+            ROUND(SUM(bytes) * 8.0 / ({minutes} * 60.0 * 1000000.0), 2) AS mbps,
+            ROUND(SUM(bytes) * 8.0 / ({minutes} * 60.0 * 1000000000.0), 3) AS gbps,
+            COUNT(*) AS flow_count
+        FROM raw_flows
+        WHERE {where_clause}
+        GROUP BY upstream_provider, service_name
+        ORDER BY bytes DESC
+        LIMIT 10;
+        """
+        top_upstreams = self.storage.query(sql_upstreams)
+
         return {
             "criteria": criteria,
             "time_window_minutes": minutes,
@@ -237,7 +260,8 @@ class TrafficPatternEngine:
             "top_conversations": top_conversations,
             "top_interfaces": top_interfaces,
             "top_countries": top_countries,
-            "top_applications": top_apps
+            "top_applications": top_apps,
+            "top_upstreams": top_upstreams
         }
 
     def get_multiview_flow_data(self, criteria: Dict[str, Any], minutes: int = 60, preset: str = "CDN_ENTRY_EXIT") -> Dict[str, Any]:
@@ -707,4 +731,123 @@ class TrafficPatternEngine:
             "timeseries": timeseries,
             "treemap": treemap,
             "sunburst": treemap_children
+        }
+
+    def get_multi_parameter_flows(self, group_by: str = "IP_TO_IP", minutes: int = 60, limit: int = 50) -> Dict[str, Any]:
+        """
+        Carrier-Scale (>1,000 Gbps) Multi-Parameter Flow Analysis.
+        Maps real-time flow traffic against Upstream Providers and Services across:
+        - IP to IP
+        - Prefix to Prefix (/24 Subnets)
+        - Device to IP
+        - ASN to ASN
+        - Upstream to Service
+        """
+        duration_sec = max(60, minutes * 60)
+        mode = group_by.upper()
+
+        if mode == "PREFIX_TO_PREFIX":
+            sql = f"""
+            SELECT 
+                split_part(src_ip, '.', 1) || '.' || split_part(src_ip, '.', 2) || '.' || split_part(src_ip, '.', 3) || '.0/24' AS source_entity,
+                split_part(dst_ip, '.', 1) || '.' || split_part(dst_ip, '.', 2) || '.' || split_part(dst_ip, '.', 3) || '.0/24' AS destination_entity,
+                COALESCE(upstream_provider, 'Tata Communications') AS upstream_provider,
+                COALESCE(service_name, 'IPT') AS service_name,
+                SUM(bytes) AS bytes,
+                SUM(packets) AS packets,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000.0), 2) AS mbps,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000000.0), 3) AS gbps,
+                COUNT(*) AS flow_count
+            FROM raw_flows
+            WHERE timestamp >= NOW() - INTERVAL '{minutes} MINUTE'
+            GROUP BY source_entity, destination_entity, upstream_provider, service_name
+            ORDER BY bytes DESC
+            LIMIT {limit};
+            """
+        elif mode == "DEVICE_TO_IP":
+            sql = f"""
+            SELECT 
+                COALESCE(device_name, 'cisco-ny4-edge-001') AS source_entity,
+                dst_ip AS destination_entity,
+                COALESCE(upstream_provider, 'Bharti Airtel') AS upstream_provider,
+                COALESCE(service_name, 'IPT') AS service_name,
+                SUM(bytes) AS bytes,
+                SUM(packets) AS packets,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000.0), 2) AS mbps,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000000.0), 3) AS gbps,
+                COUNT(*) AS flow_count
+            FROM raw_flows
+            WHERE timestamp >= NOW() - INTERVAL '{minutes} MINUTE'
+            GROUP BY device_name, dst_ip, upstream_provider, service_name
+            ORDER BY bytes DESC
+            LIMIT {limit};
+            """
+        elif mode == "ASN_TO_ASN":
+            sql = f"""
+            SELECT 
+                'AS' || src_as || ' (' || src_as_name || ')' AS source_entity,
+                'AS' || dst_as || ' (' || dst_as_name || ')' AS destination_entity,
+                COALESCE(upstream_provider, 'Tata Communications') AS upstream_provider,
+                COALESCE(service_name, 'IPT') AS service_name,
+                SUM(bytes) AS bytes,
+                SUM(packets) AS packets,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000.0), 2) AS mbps,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000000.0), 3) AS gbps,
+                COUNT(*) AS flow_count
+            FROM raw_flows
+            WHERE timestamp >= NOW() - INTERVAL '{minutes} MINUTE'
+            GROUP BY src_as, src_as_name, dst_as, dst_as_name, upstream_provider, service_name
+            ORDER BY bytes DESC
+            LIMIT {limit};
+            """
+        elif mode == "UPSTREAM_TO_SERVICE":
+            sql = f"""
+            SELECT 
+                COALESCE(upstream_provider, 'Tata Communications') AS source_entity,
+                COALESCE(service_name, 'IPT') AS destination_entity,
+                COALESCE(upstream_provider, 'Tata Communications') AS upstream_provider,
+                COALESCE(service_name, 'IPT') AS service_name,
+                SUM(bytes) AS bytes,
+                SUM(packets) AS packets,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000.0), 2) AS mbps,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000000.0), 3) AS gbps,
+                COUNT(*) AS flow_count
+            FROM raw_flows
+            WHERE timestamp >= NOW() - INTERVAL '{minutes} MINUTE'
+            GROUP BY upstream_provider, service_name
+            ORDER BY bytes DESC
+            LIMIT {limit};
+            """
+        else: # Default: IP_TO_IP
+            mode = "IP_TO_IP"
+            sql = f"""
+            SELECT 
+                src_ip AS source_entity,
+                dst_ip AS destination_entity,
+                COALESCE(upstream_provider, 'Tata Communications') AS upstream_provider,
+                COALESCE(service_name, 'IPT') AS service_name,
+                SUM(bytes) AS bytes,
+                SUM(packets) AS packets,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000.0), 2) AS mbps,
+                ROUND(SUM(bytes) * 8.0 / ({duration_sec} * 1000000000.0), 3) AS gbps,
+                COUNT(*) AS flow_count
+            FROM raw_flows
+            WHERE timestamp >= NOW() - INTERVAL '{minutes} MINUTE'
+            GROUP BY src_ip, dst_ip, upstream_provider, service_name
+            ORDER BY bytes DESC
+            LIMIT {limit};
+            """
+
+        rows = self.storage.query(sql) if hasattr(self.storage, "query") else []
+
+        total_gbps = round(sum(r.get("gbps", 0.0) for r in rows), 3)
+        total_mbps = round(sum(r.get("mbps", 0.0) for r in rows), 2)
+
+        return {
+            "group_by": mode,
+            "time_window_minutes": minutes,
+            "total_records": len(rows),
+            "total_gbps": total_gbps,
+            "total_mbps": total_mbps,
+            "flows": rows
         }

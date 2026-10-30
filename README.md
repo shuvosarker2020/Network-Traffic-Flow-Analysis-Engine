@@ -18,20 +18,22 @@ It is engineered from the ground up to ingest, enrich, and analyze continuous fl
 2. [Multi-Vendor Hardware & Protocol Support](#-multi-vendor-hardware--protocol-support)
 3. [Zero-Touch Ingestion vs. Optional Device Registration](#-zero-touch-ingestion-vs-optional-device-registration)
 4. [Multi-Condition Filtering & Saved Reports Engine](#-multi-condition-filtering--saved-reports-engine)
-5. [Multi-View Traffic Visualization Studio (Graph Change Options)](#-multi-view-traffic-visualization-studio-graph-change-options)
-6. [Interactive Cyber Attack Injection Range (Start / Stop)](#-interactive-cyber-attack-injection-range-start--stop)
-7. [DDoS Radar, Anomaly Detection & BGP Flowspec Mitigation](#-ddos-radar-anomaly-detection--bgp-flowspec-mitigation)
-8. [Advanced Traffic Engineering & Analytics](#-advanced-traffic-engineering--analytics)
+5. [Upstream Bandwidth Management & Smart IIG Traffic Shift (>1,000 Gbps)](#-upstream-bandwidth-management--smart-iig-traffic-shift-1000-gbps)
+6. [Mobile App & Progressive Web App (PWA) Support](#-mobile-app--progressive-web-app-pwa-support)
+7. [Multi-View Traffic Visualization Studio (Graph Change Options)](#-multi-view-traffic-visualization-studio-graph-change-options)
+8. [Interactive Cyber Attack Injection Range (Start / Stop)](#-interactive-cyber-attack-injection-range-start--stop)
+9. [DDoS Radar, Anomaly Detection & BGP Flowspec Mitigation](#-ddos-radar-anomaly-detection--bgp-flowspec-mitigation)
+10. [Advanced Traffic Engineering & Analytics](#-advanced-traffic-engineering--analytics)
    - [ASN-to-ASN Peering & Cost Optimization](#asn-to-asn-peering--cost-optimization)
    - [Interface Capacity Saturation & IN/OUT Ratios](#interface-capacity-saturation--inout-ratios)
    - [QoS & CBQoS Policy Validation](#qos--cbqos-policy-validation)
    - [Site-to-Site WAN & Cloud Interconnect Tracking](#site-to-site-wan--cloud-interconnect-tracking)
    - [Capacity Planning & Linear Bandwidth Forecast](#capacity-planning--linear-bandwidth-forecast)
    - [95th Percentile Burstable Invoicing & Billing](#95th-percentile-burstable-invoicing--billing)
-9. [High-Performance Columnar Storage (1-3 Month Retention)](#-high-performance-columnar-storage-1-3-month-retention)
-10. [Air-Gap Security & Zero-Exfiltration Mandate](#-air-gap-security--zero-exfiltration-mandate)
-11. [Quick Start & Deployment Guide](#-quick-start--deployment-guide)
-12. [REST API & WebSocket Reference](#-rest-api--websocket-reference)
+11. [High-Performance Columnar Storage (1-3 Month Retention)](#-high-performance-columnar-storage-1-3-month-retention)
+12. [Air-Gap Security & Zero-Exfiltration Mandate](#-air-gap-security--zero-exfiltration-mandate)
+13. [Quick Start & Deployment Guide](#-quick-start--deployment-guide)
+14. [REST API & WebSocket Reference](#-rest-api--websocket-reference)
 
 ---
 
@@ -160,6 +162,75 @@ AegisFlow features a multi-attribute pattern matching engine that lets network a
   - **Webhooks**: Dispatches rich JSON alert cards to internal **Slack**, **Microsoft Teams**, or SIEM HTTP endpoints.
   - **CSV & HTML Export**: Instant one-click file exports.
   - **In-App Notification Center**: Persistent audit trail for NetOps teams.
+
+---
+
+## 🌐 Upstream Bandwidth Management & Smart IIG Traffic Shift (>1,000 Gbps)
+
+AegisFlow is built to handle carrier-scale **>1,000 Gbps (1 Terabit/s+)** aggregate traffic across multiple upstream providers and services, automatically detecting congestion and calculating optimal traffic shifts to alternative IIGs with available headroom.
+
+```
+                  ┌─────────────────────────────────────────────────────────────┐
+                  │ Carrier Total Capacity: 3.5 Tbps (3,500 Gbps) Across Upstreams│
+                  └──────────────┬───────────────────────────────┬──────────────┘
+                                 │                               │
+                ┌────────────────┴───────────────┐               │
+                ▼                                ▼               ▼
+     [ Tata Communications ]            [ Bharti Airtel ]   [ Cogent / NTT / Telia ]
+        Capacity: 300 Gbps                 Capacity: 250 Gbps     Combined: 650 Gbps
+        Utilized: 277 Gbps (92.4%) ⚠️       Utilized: 145 Gbps     Headroom: 380 Gbps
+        Headroom: 23 Gbps                  Headroom: 105 Gbps
+                │                                ▲
+                └───────── Traffic Shift ────────┘
+                      Shift 52.2 Gbps via BGP
+                   (Google, Cloudflare, Meta ASNs)
+```
+
+### 1. Multi-Upstream & Service Support
+Operators can configure purchased bandwidth capacity, warning/critical thresholds, BGP communities, and cost per Mbps for:
+- **Upstream Providers**: e.g. Tata Communications, Bharti Airtel, Cogent, NTT Global, Telia Arelion, SEA-ME-WE Consortium, etc.
+- **Service Categories**:
+  - **`IPT` (IP Transit)**: Global paid internet transit connections.
+  - **`PNI` (Private Network Interconnect)**: Dedicated direct peering with Google, Meta, Microsoft, AWS.
+  - **`MixCDN` (Multi-CDN Aggregation)**: Dynamic web and video delivery caches.
+  - **`Baishan` (BaishanCloud)**: Asia-Pacific edge caching and CDN delivery.
+  - **`IX` (Internet Exchange)**: National/Regional settlement-free peering (e.g. BDIX, DE-CIX).
+  - **`GGC` (Google Global Cache)**: On-net caching nodes for zero-transit YouTube delivery.
+  - **`FNA` (Facebook Network Appliance)**: On-net caching nodes for Meta traffic.
+  - **Custom Services**: Enter any custom delivery pool (Akamai AAP, Netflix OCA, Cloudflare CDN) on demand.
+
+### 2. Real-Time Over-Utilization Alerts & Smart Shift Engine
+- **Capacity Utilization**: Computes real-time wire-rate Gbps against purchased capacity every 5 seconds.
+- **Congestion Triggers**: Triggers automated Warning (>80%) and Critical (>90%) alerts in the UI, webhooks, and mobile PWA.
+- **Automated Traffic Shift Recommendations**:
+  - Automatically identifies target available IIGs with sufficient headroom.
+  - Analyzes top talkers on the congested link to select candidate ASNs (e.g. `AS15169 Google`, `AS13335 Cloudflare`, `AS32934 Meta`) and destination prefixes.
+  - Generates ready-to-deploy **BGP Routing Policies** for Cisco IOS-XR, Juniper Junos, and Huawei VRP (Local-Preference adjustments, community tagging, AS-path prepending).
+  - Features one-click **"⚡ Deploy Traffic Shift"** directly from the dashboard.
+
+### 3. Multi-Parameter Flow Mapping (>1,000 Gbps Scale)
+Correlates live flow traffic against Upstream Providers and Services across 5 multi-parameter dimensions:
+1. **IP to IP**: Maps individual host-to-host flows to the carrier upstream carrying the packets.
+2. **Prefix to Prefix (/24 Subnets)**: Aggregates enterprise and subscriber subnets across carrier links.
+3. **Device to IP**: Tracks which edge router interface egresses traffic to specific destination IPs.
+4. **ASN to ASN**: Maps origin Autonomous System to destination Autonomous System traversal.
+5. **Upstream to Service**: High-level carrier delivery matrix showing bandwidth share per service pool.
+- Includes instantaneous search filter and one-click **"📥 CSV Export"**.
+
+---
+
+## 📱 Mobile App & Progressive Web App (PWA) Support
+
+AegisFlow is fully mobile-ready and can be operated seamlessly from smartphones and tablets:
+
+1. **Progressive Web App (PWA)**:
+   - Web App Manifest ([`ui/manifest.json`](file:///d:/AI-Projects/Traffic-flow-Analysis-Engine/ui/manifest.json)) and Service Worker ([`ui/sw.js`](file:///d:/AI-Projects/Traffic-flow-Analysis-Engine/ui/sw.js)) enable operators to tap **"Add to Home Screen"** on iOS Safari and Android Chrome to install AegisFlow as a standalone native-like mobile app.
+   - Offline-capable UI shell and fast asset caching.
+2. **Responsive Mobile Navigation**:
+   - Fixed **Bottom Mobile Navigation Bar** for one-thumb switching between *NOC Overview*, *IIG Shift*, *CDN Sankey*, *Security*, and *Alerts*.
+   - Off-canvas drawer menu for accessing full 13 platform modules on handheld screens.
+3. **Mobile API Hub (`/api/v1/mobile/summary`)**:
+   - Compact, high-speed JSON payload tailored for mobile apps, smartwatch widgets, and push notification integrations.
 
 ---
 
@@ -410,6 +481,18 @@ docker compose up -d
 | `POST`| `/api/v1/simulate/attack/start` | Starts background attack injection (custom IP, protocol, rate) |
 | `POST`| `/api/v1/simulate/attack/stop` | Halts active attack campaign |
 | `GET` | `/api/v1/simulate/attack/status` | Returns live attack campaign telemetry (Mbps, PPS, total packets) |
+
+### Upstream Bandwidth Management & Traffic Shifting
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/upstreams` | Real-time utilization %, wire-rate Gbps, and headroom across upstreams |
+| `POST`| `/api/v1/upstreams` | Creates new Upstream Provider & Service with purchased bandwidth |
+| `PUT` | `/api/v1/upstreams/{id}` | Updates upstream provider capacity and thresholds |
+| `DELETE`| `/api/v1/upstreams/{id}`| Removes an upstream provider configuration |
+| `GET` | `/api/v1/upstreams/shift-suggestions` | Smart traffic shift recommendations to alternative available IIGs |
+| `POST`| `/api/v1/upstreams/shift-execute` | Deploys/simulates recommended BGP traffic shift policy |
+| `GET` | `/api/v1/upstreams/multi-parameter-flows` | Multi-parameter flow mapping (IP-to-IP, Prefix-to-Prefix, Device-to-IP, ASN-to-ASN) |
+| `GET` | `/api/v1/mobile/summary` | Lightweight executive summary tailored for mobile apps and PWA |
 
 ### Engineering, Capacity & Billing
 | Method | Endpoint | Description |

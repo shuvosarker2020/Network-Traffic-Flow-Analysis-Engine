@@ -13,6 +13,12 @@
   <!-- Leaflet Map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- PWA & Mobile Web App Meta -->
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#080c14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AegisFlow">
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -48,7 +54,11 @@
 
   <!-- Top Navigation Header -->
   <header class="glass-card sticky top-0 z-50 px-6 py-3 border-b border-slate-800 flex items-center justify-between">
-    <div class="flex items-center space-x-4">
+    <div class="flex items-center space-x-3">
+      <!-- Mobile Drawer Toggle -->
+      <button onclick="toggleMobileSidebar()" class="lg:hidden p-2 text-slate-300 hover:text-white rounded-lg bg-slate-800 border border-slate-700">
+        <i class="fa-solid fa-bars text-sm"></i>
+      </button>
       <div class="flex items-center space-x-2">
         <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
           <i class="fa-solid fa-network-wired text-white text-lg"></i>
@@ -95,11 +105,22 @@
   <!-- Main App Layout with Sidebar Tabs -->
   <div class="flex flex-1 overflow-hidden">
     <!-- Sidebar Navigation -->
-    <aside class="w-64 glass-card border-r border-slate-800 p-4 flex flex-col space-y-1">
+    <aside id="app-sidebar" class="w-64 glass-card border-r border-slate-800 p-4 flex flex-col space-y-1 fixed lg:static inset-y-0 left-0 z-40 transform -translate-x-full lg:translate-x-0 transition-transform duration-200 overflow-y-auto bg-slate-950/95 lg:bg-transparent">
+      <div class="flex items-center justify-between lg:hidden mb-3 pb-2 border-b border-slate-800">
+        <span class="text-xs font-bold text-cyan-400">AEGISFLOW NOC MENU</span>
+        <button onclick="toggleMobileSidebar()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
       <div class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase px-3 mb-2">Observability & Flow</div>
       <button onclick="switchTab('overview')" id="nav-overview" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-white bg-cyan-600/20 border border-cyan-500/30">
         <i class="fa-solid fa-chart-line text-cyan-400 w-5"></i>
         <span>NOC Overview</span>
+      </button>
+      <button onclick="switchTab('upstreams')" id="nav-upstreams" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
+        <i class="fa-solid fa-arrows-split-up-and-left text-cyan-400 w-5"></i>
+        <div class="flex items-center justify-between w-full">
+          <span>Upstream & IIG Shift</span>
+          <span id="badge-congested-iig" class="hidden px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">!</span>
+        </div>
       </button>
       <button onclick="switchTab('pattern')" id="nav-pattern" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition text-slate-400 hover:text-white hover:bg-slate-800/60">
         <i class="fa-solid fa-filter-circle-dollar text-cyan-400 w-5"></i>
@@ -239,6 +260,165 @@
           <div class="glass-card p-5 rounded-xl">
             <h3 class="text-sm font-semibold text-white mb-3">Traffic Flow Classification (East-West vs North-South)</h3>
             <div id="chart-direction-pie" class="w-full h-64"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB: UPSTREAM PROVIDERS & IIG TRAFFIC SHIFT ================= -->
+      <section id="tab-upstreams" class="tab-pane hidden space-y-6">
+        <!-- Header & Action Bar -->
+        <div class="glass-card p-5 rounded-xl border-l-4 border-l-cyan-500">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h2 class="text-base font-semibold text-white flex items-center space-x-2">
+                <i class="fa-solid fa-arrows-split-up-and-left text-cyan-400"></i>
+                <span>Upstream Providers & Service Capacity Management (IIG Traffic Optimization)</span>
+              </h2>
+              <p class="text-xs text-slate-400 mt-1">
+                Monitors purchased bandwidth capacities across 5+ Upstreams (Tata, Airtel, Cogent, NTT, Telia) and Services (IPT, PNI, MixCDN, Baishan, IX, GGC, FNA). Automatically suggests intelligent traffic shift to alternative IIGs with available headroom (>1,000 Gbps scale).
+              </p>
+            </div>
+            <div class="flex items-center flex-wrap gap-2">
+              <button onclick="openAddUpstreamModal()" class="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg shadow-cyan-600/30 transition">
+                <i class="fa-solid fa-plus"></i>
+                <span>Add Upstream / Service</span>
+              </button>
+              <button onclick="loadTrafficShiftSuggestions()" class="px-3.5 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 text-xs font-semibold flex items-center space-x-1.5 transition">
+                <i class="fa-solid fa-bolt"></i>
+                <span>Check Shift Suggestions</span>
+              </button>
+              <button onclick="loadUpstreamData()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center space-x-1.5 transition">
+                <i class="fa-solid fa-rotate text-cyan-400"></i>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terabit Scale Capacity KPI Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="glass-card p-4 rounded-xl border border-slate-800">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Total Purchased Bandwidth</span>
+              <i class="fa-solid fa-server text-cyan-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-white tracking-tight" id="kpi-upstream-total-cap">-- Tbps</div>
+            <div class="text-[11px] text-slate-400 mt-1" id="kpi-upstream-total-cap-sub">-- Gbps Across All Services</div>
+          </div>
+          <div class="glass-card p-4 rounded-xl border border-slate-800">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Current Total Utilization</span>
+              <i class="fa-solid fa-chart-line text-blue-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-cyan-400 tracking-tight" id="kpi-upstream-total-utilized">-- Gbps</div>
+            <div class="text-[11px] text-slate-400 mt-1" id="kpi-upstream-util-pct">--% Aggregate Utilization</div>
+          </div>
+          <div class="glass-card p-4 rounded-xl border border-slate-800">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Available Headroom</span>
+              <i class="fa-solid fa-shield-heart text-emerald-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-emerald-400 tracking-tight" id="kpi-upstream-total-headroom">-- Gbps</div>
+            <div class="text-[11px] text-slate-400 mt-1">Available for Traffic Absorption</div>
+          </div>
+          <div class="glass-card p-4 rounded-xl border border-slate-800">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>IIG Congestion Status</span>
+              <i class="fa-solid fa-triangle-exclamation text-amber-400"></i>
+            </div>
+            <div class="mt-2 text-2xl font-bold text-white tracking-tight" id="kpi-upstream-congested">0 Links</div>
+            <div class="text-[11px] text-amber-400 mt-1" id="kpi-upstream-congested-sub">Over 80% Utilization Threshold</div>
+          </div>
+        </div>
+
+        <!-- Real-Time Smart Traffic Shift Suggestions Banner (Dynamic) -->
+        <div id="container-shift-suggestions" class="space-y-4">
+          <!-- Populated dynamically by app.js -->
+        </div>
+
+        <!-- Upstream Providers & Services Capacity Table -->
+        <div class="glass-card p-5 rounded-xl space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-white">Configured Upstream Providers & Service Bandwidths</h3>
+              <p class="text-xs text-slate-400">Live wire-rate vs. purchased capacity across IPT, PNI, MixCDN, Baishan, IX, GGC, and FNA</p>
+            </div>
+            <!-- Service Filter Chips -->
+            <div class="flex flex-wrap items-center gap-1.5 text-xs font-mono" id="filter-chips-services">
+              <button onclick="filterUpstreamServiceTable('ALL')" class="px-2.5 py-1 rounded-lg bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 font-semibold">ALL</button>
+              <button onclick="filterUpstreamServiceTable('IPT')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">IPT</button>
+              <button onclick="filterUpstreamServiceTable('PNI')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">PNI</button>
+              <button onclick="filterUpstreamServiceTable('MixCDN')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">MixCDN</button>
+              <button onclick="filterUpstreamServiceTable('Baishan')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">Baishan</button>
+              <button onclick="filterUpstreamServiceTable('IX')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">IX</button>
+              <button onclick="filterUpstreamServiceTable('GGC')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">GGC</button>
+              <button onclick="filterUpstreamServiceTable('FNA')" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white">FNA</button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2.5">Upstream Provider</th>
+                  <th class="pb-2.5">Service Type</th>
+                  <th class="pb-2.5 text-right">Purchased Capacity</th>
+                  <th class="pb-2.5 text-right">Current Wire-Rate</th>
+                  <th class="pb-2.5 text-right">Available Headroom</th>
+                  <th class="pb-2.5 w-44">Utilization %</th>
+                  <th class="pb-2.5 text-center">Status</th>
+                  <th class="pb-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="table-upstreams-body" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="8" class="py-6 text-center text-slate-500">Loading upstream provider telemetry...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Carrier-Scale Multi-Parameter Flow Mapping Studio -->
+        <div class="glass-card p-5 rounded-xl space-y-4">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-white flex items-center space-x-2">
+                <i class="fa-solid fa-network-wired text-cyan-400"></i>
+                <span>Multi-Parameter Flow Mapping (>1,000 Gbps Traffic Engineering)</span>
+              </h3>
+              <p class="text-xs text-slate-400">Maps live carrier flows across IP to IP, Prefix to Prefix, Device to IP, ASN to ASN, and Upstream to Service attribution.</p>
+            </div>
+            <!-- Mode Switcher Buttons -->
+            <div class="flex flex-wrap items-center gap-1.5 text-xs font-mono">
+              <button onclick="loadMultiParameterFlows('IP_TO_IP')" id="btn-map-ip-to-ip" class="px-2.5 py-1 rounded bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 font-semibold">IP to IP</button>
+              <button onclick="loadMultiParameterFlows('PREFIX_TO_PREFIX')" id="btn-map-prefix" class="px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-white">Prefix to Prefix (/24)</button>
+              <button onclick="loadMultiParameterFlows('DEVICE_TO_IP')" id="btn-map-device" class="px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-white">Device to IP</button>
+              <button onclick="loadMultiParameterFlows('ASN_TO_ASN')" id="btn-map-asn" class="px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-white">ASN to ASN</button>
+              <button onclick="loadMultiParameterFlows('UPSTREAM_TO_SERVICE')" id="btn-map-up-svc" class="px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-white">Upstream to Service</button>
+              <button onclick="exportMultiParamCSV()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-sans font-semibold flex items-center space-x-1">
+                <i class="fa-solid fa-download text-cyan-400"></i>
+                <span>CSV</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="text-slate-400 border-b border-slate-800">
+                  <th class="pb-2.5" id="th-map-src">Source Entity</th>
+                  <th class="pb-2.5" id="th-map-dst">Destination Entity</th>
+                  <th class="pb-2.5">Mapped Upstream Provider</th>
+                  <th class="pb-2.5">Mapped Service</th>
+                  <th class="pb-2.5 text-right">Throughput (Gbps)</th>
+                  <th class="pb-2.5 text-right">Throughput (Mbps)</th>
+                  <th class="pb-2.5 text-right">Packets</th>
+                  <th class="pb-2.5 text-right">Flow Count</th>
+                </tr>
+              </thead>
+              <tbody id="table-multiparam-flows-body" class="divide-y divide-slate-800/60 font-mono">
+                <tr><td colspan="8" class="py-6 text-center text-slate-500">Select mapping parameter to view carrier flow correlation...</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -1546,6 +1726,158 @@ interface 100GE1/0/1
       </div>
     </div>
   </div>
+
+  <!-- ================= MODAL: ADD / EDIT UPSTREAM PROVIDER & SERVICE ================= -->
+  <div id="modal-upstream-provider" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl border border-slate-700/80 w-full max-w-xl p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-cyan-600/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+            <i class="fa-solid fa-server text-sm"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white" id="modal-up-title">Add Upstream Provider & Service Capacity</h3>
+            <p class="text-xs text-slate-400">Configure purchased bandwidth for IIG, Transit, Peering, or CDN caches</p>
+          </div>
+        </div>
+        <button onclick="closeUpstreamModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <input type="hidden" id="modal-up-id" value="">
+
+      <div class="space-y-3.5 text-xs">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Upstream Provider Name</label>
+          <input type="text" id="modal-up-provider-name" placeholder="e.g. Tata Communications, Bharti Airtel, Cogent, NTT" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 outline-none focus:border-cyan-500">
+          <div class="flex flex-wrap gap-1 pt-1.5">
+            <button type="button" onclick="setUpstreamPreset('Tata Communications', 'IPT', 300)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px]">Tata (300G)</button>
+            <button type="button" onclick="setUpstreamPreset('Bharti Airtel', 'IPT', 250)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px]">Airtel (250G)</button>
+            <button type="button" onclick="setUpstreamPreset('Cogent', 'IPT', 200)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px]">Cogent (200G)</button>
+            <button type="button" onclick="setUpstreamPreset('NTT Global', 'IPT', 250)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px]">NTT (250G)</button>
+            <button type="button" onclick="setUpstreamPreset('Google Global Cache', 'GGC', 400)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px]">GGC (400G)</button>
+            <button type="button" onclick="setUpstreamPreset('Facebook Network Appliance', 'FNA', 300)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px]">FNA (300G)</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Service Type</label>
+            <select id="modal-up-service-name" onchange="onServiceTypeChange(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 outline-none focus:border-cyan-500 font-mono">
+              <option value="IPT" selected>IPT (Tier-1 IP Transit)</option>
+              <option value="PNI">PNI (Private Network Interconnect)</option>
+              <option value="MixCDN">MixCDN (Multi-CDN Aggregation)</option>
+              <option value="Baishan">Baishan (BaishanCloud Edge Cache)</option>
+              <option value="IX">IX (National / Regional Internet Exchange)</option>
+              <option value="GGC">GGC (Google Global Cache - On-Net)</option>
+              <option value="FNA">FNA (Facebook Network Appliance - On-Net)</option>
+              <option value="CUSTOM">+ Custom / User-Defined Service...</option>
+            </select>
+          </div>
+          <div id="wrapper-custom-service" class="hidden">
+            <label class="block text-slate-300 font-semibold mb-1">Custom Service Name</label>
+            <input type="text" id="modal-up-custom-service" placeholder="e.g. Akamai-AAP, Netflix-OCA" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Purchased Bandwidth Capacity</label>
+            <div class="relative">
+              <input type="number" id="modal-up-capacity-gbps" value="200" min="1" step="0.5" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-cyan-500 pr-12">
+              <span class="absolute right-3 top-1.5 text-slate-500 font-mono font-bold">Gbps</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Warning Threshold %</label>
+            <input type="number" id="modal-up-warn-th" value="80" min="50" max="99" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Critical Threshold %</label>
+            <input type="number" id="modal-up-crit-th" value="90" min="55" max="100" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Cost / Mbps ($ USD)</label>
+            <input type="number" id="modal-up-cost" value="0.45" min="0" step="0.01" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-cyan-500">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Associated Upstream ASNs</label>
+            <input type="text" id="modal-up-asns" placeholder="e.g. 6453, 9498" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-cyan-500">
+            <span class="text-[10px] text-slate-500 block pt-0.5">Comma-separated BGP ASNs</span>
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Associated Interfaces</label>
+            <input type="text" id="modal-up-interfaces" placeholder="e.g. HundredGigE0/0/0/1, HundredGigE0/0/0/2" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-slate-200 font-mono outline-none focus:border-cyan-500">
+            <span class="text-[10px] text-slate-500 block pt-0.5">Router interface names</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between border-t border-slate-800 pt-3">
+        <button onclick="closeUpstreamModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">Cancel</button>
+        <button onclick="saveUpstreamProvider()" class="px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-cyan-600/30 transition">
+          <i class="fa-solid fa-floppy-disk"></i>
+          <span>Save Upstream / Service</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: BGP TRAFFIC SHIFT DETAILS & DEPLOY ================= -->
+  <div id="modal-traffic-shift-details" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl border border-slate-700/80 w-full max-w-2xl p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-amber-600/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+            <i class="fa-solid fa-bolt text-sm"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Smart Traffic Shift & BGP Routing Policy</h3>
+            <p class="text-xs text-slate-400">Rebalance traffic from congested upstream to available IIG</p>
+          </div>
+        </div>
+        <button onclick="closeShiftDetailsModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <div id="modal-shift-content" class="space-y-4 text-xs font-mono">
+        <!-- Injected dynamically by app.js -->
+      </div>
+
+      <div class="flex items-center justify-between border-t border-slate-800 pt-3">
+        <button onclick="closeShiftDetailsModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">Close</button>
+        <button id="btn-deploy-shift-modal" onclick="executeCurrentShift()" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-amber-600/30 transition">
+          <i class="fa-solid fa-bolt"></i>
+          <span>Deploy BGP Policy to Routers</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MOBILE APP BOTTOM NAVIGATION BAR (Smartphones & PWA) ================= -->
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 z-40 flex items-center justify-around py-2 px-1 text-[10px] text-slate-400 font-medium">
+    <button onclick="switchTab('overview')" class="flex flex-col items-center space-y-1 py-1 px-2 text-cyan-400">
+      <i class="fa-solid fa-chart-line text-sm"></i>
+      <span>Overview</span>
+    </button>
+    <button onclick="switchTab('upstreams')" class="flex flex-col items-center space-y-1 py-1 px-2 hover:text-cyan-400">
+      <i class="fa-solid fa-arrows-split-up-and-left text-sm"></i>
+      <span>IIG Shift</span>
+    </button>
+    <button onclick="switchTab('pattern')" class="flex flex-col items-center space-y-1 py-1 px-2 hover:text-cyan-400">
+      <i class="fa-solid fa-water text-sm"></i>
+      <span>Sankey</span>
+    </button>
+    <button onclick="switchTab('security')" class="flex flex-col items-center space-y-1 py-1 px-2 hover:text-red-400">
+      <i class="fa-solid fa-shield-halved text-sm"></i>
+      <span>Security</span>
+    </button>
+    <button onclick="openNotificationModal()" class="flex flex-col items-center space-y-1 py-1 px-2 hover:text-amber-400">
+      <i class="fa-solid fa-bell text-sm"></i>
+      <span>Alerts</span>
+    </button>
+  </nav>
 
   <!-- Notification Toast Container -->
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2"></div>

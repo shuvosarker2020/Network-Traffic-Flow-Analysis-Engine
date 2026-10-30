@@ -67,6 +67,8 @@ class DuckDBStorageEngine(BaseStorageEngine):
                 application VARCHAR,
                 app_category VARCHAR,
                 flow_direction VARCHAR,
+                upstream_provider VARCHAR,
+                service_name VARCHAR,
                 packets BIGINT,
                 bytes BIGINT,
                 duration_ms INTEGER,
@@ -116,6 +118,13 @@ class DuckDBStorageEngine(BaseStorageEngine):
             self.con.execute("CREATE INDEX IF NOT EXISTS idx_flows_src_dst ON raw_flows(src_ip, dst_ip);")
             self.con.execute("CREATE INDEX IF NOT EXISTS idx_flows_as ON raw_flows(src_as, dst_as);")
 
+            # Schema migration for Upstream Provider & Service
+            try:
+                self.con.execute("ALTER TABLE raw_flows ADD COLUMN IF NOT EXISTS upstream_provider VARCHAR;")
+                self.con.execute("ALTER TABLE raw_flows ADD COLUMN IF NOT EXISTS service_name VARCHAR;")
+            except Exception:
+                pass
+
     def insert_flows(self, records: List[Dict[str, Any]]) -> int:
         if not records:
             return 0
@@ -130,6 +139,7 @@ class DuckDBStorageEngine(BaseStorageEngine):
             "src_country", "src_city", "src_cloud", "src_lat", "src_lon",
             "dst_country", "dst_city", "dst_cloud", "dst_lat", "dst_lon",
             "application", "app_category", "flow_direction",
+            "upstream_provider", "service_name",
             "packets", "bytes", "duration_ms", "sampling_rate"
         ]
 
@@ -181,6 +191,8 @@ class DuckDBStorageEngine(BaseStorageEngine):
                 r.get("application", "Unknown"),
                 r.get("app_category", "General"),
                 r.get("flow_direction", "External"),
+                r.get("upstream_provider", "Default Transit"),
+                r.get("service_name", "IPT"),
                 int(r.get("packets", 0)),
                 int(r.get("bytes", 0)),
                 int(r.get("duration_ms", 0)),

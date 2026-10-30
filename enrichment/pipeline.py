@@ -10,6 +10,7 @@ from enrichment.snmp_cache import snmp_cache
 from enrichment.application import classify_application, classify_dscp
 from enrichment.rfc1918 import classify_flow_direction
 from enrichment.bgp_asn import asn_analyzer
+from analytics.upstream_manager import upstream_manager
 
 def enrich_flow_record(rec: Dict[str, Any]) -> Dict[str, Any]:
     exporter_ip = rec.get("exporter_ip", "0.0.0.0")
@@ -86,6 +87,13 @@ def enrich_flow_record(rec: Dict[str, Any]) -> Dict[str, Any]:
 
     # 5. East-West / North-South Traffic Direction
     rec["flow_direction"] = classify_flow_direction(src_ip, dst_ip)
+
+    # 6. Upstream Provider & Service Mapping (IPT, PNI, MixCDN, Baishan, IX, GGC, FNA, etc.)
+    provider, service = upstream_manager.match_flow(
+        in_meta["name"], out_meta["name"], exporter_ip, rec.get("src_as", 0), rec.get("dst_as", 0)
+    )
+    rec["upstream_provider"] = provider
+    rec["service_name"] = service
 
     return rec
 

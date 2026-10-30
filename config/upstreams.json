@@ -1,0 +1,315 @@
+[
+  {
+    "id": "up-tata-ipt-01",
+    "provider_name": "Tata Communications",
+    "service_name": "IPT",
+    "capacity_gbps": 300.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.45,
+    "associated_asns": [
+      6453
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/1",
+      "HundredGigE0/0/0/2",
+      "HundredGigE0/0/0/3"
+    ],
+    "associated_devices": [
+      "cisco-ny4-edge-001",
+      "juniper-fra1-core-002"
+    ],
+    "bgp_community": "65000:101",
+    "status": "ACTIVE",
+    "description": "Primary Tier-1 Global IP Transit via Tata Communications"
+  },
+  {
+    "id": "up-airtel-ipt-02",
+    "provider_name": "Bharti Airtel",
+    "service_name": "IPT",
+    "capacity_gbps": 250.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.42,
+    "associated_asns": [
+      9498
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/4",
+      "HundredGigE0/0/0/5"
+    ],
+    "associated_devices": [
+      "cisco-ny4-edge-001",
+      "huawei-ty2-edge-003"
+    ],
+    "bgp_community": "65000:102",
+    "status": "ACTIVE",
+    "description": "Secondary Tier-1 IP Transit via Bharti Airtel IIG"
+  },
+  {
+    "id": "up-cogent-ipt-03",
+    "provider_name": "Cogent Communications",
+    "service_name": "IPT",
+    "capacity_gbps": 200.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.38,
+    "associated_asns": [
+      174
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/6",
+      "HundredGigE0/0/0/7"
+    ],
+    "associated_devices": [
+      "juniper-fra1-core-002"
+    ],
+    "bgp_community": "65000:103",
+    "status": "ACTIVE",
+    "description": "Direct Cogent Transit link for US and European destinations"
+  },
+  {
+    "id": "up-ntt-ipt-04",
+    "provider_name": "NTT Global",
+    "service_name": "IPT",
+    "capacity_gbps": 250.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.48,
+    "associated_asns": [
+      2914
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/8",
+      "HundredGigE0/0/0/9"
+    ],
+    "associated_devices": [
+      "huawei-ty2-edge-003"
+    ],
+    "bgp_community": "65000:104",
+    "status": "ACTIVE",
+    "description": "Premium Asia-Pacific & Trans-Pacific IP Transit"
+  },
+  {
+    "id": "up-telia-ipt-05",
+    "provider_name": "Telia Arelion",
+    "service_name": "IPT",
+    "capacity_gbps": 200.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.44,
+    "associated_asns": [
+      1299
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/10",
+      "HundredGigE0/0/0/11"
+    ],
+    "associated_devices": [
+      "juniper-fra1-core-002"
+    ],
+    "bgp_community": "65000:105",
+    "status": "ACTIVE",
+    "description": "European high-availability IP Transit gateway"
+  },
+  {
+    "id": "up-google-pni-06",
+    "provider_name": "Google",
+    "service_name": "PNI",
+    "capacity_gbps": 300.0,
+    "warn_threshold_pct": 85.0,
+    "crit_threshold_pct": 92.0,
+    "cost_per_mbps": 0.05,
+    "associated_asns": [
+      15169
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/12",
+      "HundredGigE0/0/0/13",
+      "HundredGigE0/0/0/14"
+    ],
+    "associated_devices": [
+      "cisco-ny4-edge-001",
+      "juniper-fra1-core-002"
+    ],
+    "bgp_community": "65000:201",
+    "status": "ACTIVE",
+    "description": "Direct Private Network Interconnect (PNI) to Google Cloud & YouTube"
+  },
+  {
+    "id": "up-meta-pni-07",
+    "provider_name": "Meta (Facebook)",
+    "service_name": "PNI",
+    "capacity_gbps": 250.0,
+    "warn_threshold_pct": 85.0,
+    "crit_threshold_pct": 92.0,
+    "cost_per_mbps": 0.05,
+    "associated_asns": [
+      32934
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/15",
+      "HundredGigE0/0/0/16"
+    ],
+    "associated_devices": [
+      "cisco-ny4-edge-001"
+    ],
+    "bgp_community": "65000:202",
+    "status": "ACTIVE",
+    "description": "Direct PNI to Meta (Facebook, Instagram, WhatsApp)"
+  },
+  {
+    "id": "up-ggc-cache-08",
+    "provider_name": "Google Global Cache",
+    "service_name": "GGC",
+    "capacity_gbps": 400.0,
+    "warn_threshold_pct": 85.0,
+    "crit_threshold_pct": 95.0,
+    "cost_per_mbps": 0.0,
+    "associated_asns": [
+      15169
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/17",
+      "HundredGigE0/0/0/18",
+      "HundredGigE0/0/0/19",
+      "HundredGigE0/0/0/20"
+    ],
+    "associated_devices": [
+      "cisco-ny4-edge-001"
+    ],
+    "bgp_community": "65000:301",
+    "status": "ACTIVE",
+    "description": "On-Net Google Global Cache cluster for zero-cost YouTube delivery"
+  },
+  {
+    "id": "up-fna-cache-09",
+    "provider_name": "Facebook Network Appliance",
+    "service_name": "FNA",
+    "capacity_gbps": 300.0,
+    "warn_threshold_pct": 85.0,
+    "crit_threshold_pct": 95.0,
+    "cost_per_mbps": 0.0,
+    "associated_asns": [
+      32934
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/21",
+      "HundredGigE0/0/0/22",
+      "HundredGigE0/0/0/23"
+    ],
+    "associated_devices": [
+      "cisco-ny4-edge-001"
+    ],
+    "bgp_community": "65000:302",
+    "status": "ACTIVE",
+    "description": "On-Net Facebook Network Appliance (FNA) caching cluster"
+  },
+  {
+    "id": "up-mixcdn-akamai-10",
+    "provider_name": "MixCDN (Akamai & Cloudflare)",
+    "service_name": "MixCDN",
+    "capacity_gbps": 200.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.15,
+    "associated_asns": [
+      20940,
+      13335
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/24",
+      "HundredGigE0/0/0/25"
+    ],
+    "associated_devices": [
+      "juniper-fra1-core-002"
+    ],
+    "bgp_community": "65000:401",
+    "status": "ACTIVE",
+    "description": "Multi-CDN aggregate peering for dynamic web acceleration"
+  },
+  {
+    "id": "up-baishan-cdn-11",
+    "provider_name": "BaishanCloud",
+    "service_name": "Baishan",
+    "capacity_gbps": 100.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.2,
+    "associated_asns": [
+      59049
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/26"
+    ],
+    "associated_devices": [
+      "huawei-ty2-edge-003"
+    ],
+    "bgp_community": "65000:402",
+    "status": "ACTIVE",
+    "description": "BaishanCloud CDN peering for gaming and video streaming"
+  },
+  {
+    "id": "up-regional-ix-12",
+    "provider_name": "National / Regional IX",
+    "service_name": "IX",
+    "capacity_gbps": 250.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.02,
+    "associated_asns": [
+      24389
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/27",
+      "HundredGigE0/0/0/28"
+    ],
+    "associated_devices": [
+      "cisco-ny4-edge-001",
+      "huawei-ty2-edge-003"
+    ],
+    "bgp_community": "65000:501",
+    "status": "ACTIVE",
+    "description": "Settlement-free Domestic Internet Exchange peering"
+  },
+  {
+    "id": "up-sea-me-we-5-ipt-8936",
+    "provider_name": "SEA-ME-WE-5 Consortium",
+    "service_name": "IPT",
+    "capacity_gbps": 500.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.3,
+    "associated_asns": [
+      45454
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/50",
+      "HundredGigE0/0/0/51"
+    ],
+    "associated_devices": [],
+    "bgp_community": "65000:936",
+    "status": "ACTIVE",
+    "description": "SEA-ME-WE-5 Consortium IPT link with 500.0 Gbps purchased bandwidth."
+  },
+  {
+    "id": "up-sea-me-we-5-ipt-9001",
+    "provider_name": "SEA-ME-WE-5 Consortium",
+    "service_name": "IPT",
+    "capacity_gbps": 500.0,
+    "warn_threshold_pct": 80.0,
+    "crit_threshold_pct": 90.0,
+    "cost_per_mbps": 0.3,
+    "associated_asns": [
+      45454
+    ],
+    "associated_interfaces": [
+      "HundredGigE0/0/0/50",
+      "HundredGigE0/0/0/51"
+    ],
+    "associated_devices": [],
+    "bgp_community": "65000:1",
+    "status": "ACTIVE",
+    "description": "SEA-ME-WE-5 Consortium IPT link with 500.0 Gbps purchased bandwidth."
+  }
+]
