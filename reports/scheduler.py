@@ -19,6 +19,8 @@ class ReportScheduler:
     async def start(self):
         self._running = True
         logger.info("Starting AegisFlow Automated Report Scheduler...")
+        # Brief pause to allow the web server to bind and start listening first
+        await asyncio.sleep(5)
         while self._running:
             try:
                 await self._check_and_run_schedules()
@@ -54,7 +56,8 @@ class ReportScheduler:
             if now - last_run >= interval_sec:
                 logger.info(f"Triggering scheduled report execution: {rep['name']} ({schedule})")
                 try:
-                    # Run report and dispatch notification
-                    self.report_manager.execute_report(rep["id"], send_notifications=True)
+                    # Run report and dispatch notification asynchronously in thread pool
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, self.report_manager.execute_report, rep["id"], True)
                 except Exception as e:
                     logger.error(f"Failed executing scheduled report {rep['id']}: {e}")

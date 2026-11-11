@@ -656,8 +656,14 @@ async def websocket_endpoint(websocket: WebSocket):
 ui_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui")
 if os.path.exists(ui_dir):
     app.mount("/static", StaticFiles(directory=ui_dir), name="static")
+    app.mount("/ui", StaticFiles(directory=ui_dir), name="ui_mount")
+    vendor_dir = os.path.join(ui_dir, "vendor")
+    if os.path.exists(vendor_dir):
+        app.mount("/vendor", StaticFiles(directory=vendor_dir), name="vendor")
 
 @app.get("/")
+@app.get("/index.html")
+@app.get("/dashboard")
 def serve_index():
     index_file = os.path.join(ui_dir, "index.html")
     if os.path.exists(index_file):
