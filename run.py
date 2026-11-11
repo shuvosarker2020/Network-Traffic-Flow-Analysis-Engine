@@ -9,6 +9,12 @@ import os
 import sys
 
 def main():
+    # Ensure current working directory is always the script directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(base_dir)
+    if base_dir not in sys.path:
+        sys.path.insert(0, base_dir)
+
     print("""
     ======================================================================
        ___              _     ______ _                 
